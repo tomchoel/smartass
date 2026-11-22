@@ -6,8 +6,27 @@ the same as in the doctor (`engine\smartass\ops\doctor.py`).
 
 User settings live in `%LOCALAPPDATA%\smartass\config.toml`; defaults in `engine\defaults.toml`.
 
-`smartass` not found? Open a new terminal after install (`smartass setup` adds it to your user PATH). Otherwise run it
-by its full path: `%LOCALAPPDATA%\smartass\app\engine\.venv\Scripts\smartass.exe`.
+`smartass` not found? Open a new terminal after install (`smartass setup` adds it to your user PATH). Otherwise run
+`uv run --frozen smartass ...` in the `engine` folder of your copy of the repository, or `smartass.exe` by its full
+path there: `engine\.venv\Scripts\smartass.exe`.
+
+## A new PC, step by step
+
+The install (README, "Install") is three commands: `uv sync`, `smartass setup`, `smartass login`. What
+`smartass doctor` says on the way, and what to do:
+
+- **After `smartass setup`:** `FAIL  oauth  not set up: config.toml has no [oauth] idcs, client_id and scopes` (a
+  tool call says "EPM access is not set up on this PC"). Add `[oauth]` to `%LOCALAPPDATA%\smartass\config.toml`
+  (see "oauth" below), then run `smartass login`. `atlas` and `knowledge` name `smartass login` too.
+- **After the `[oauth]` step, before `smartass login`:** `WARN  oauth  <pod>: not signed in` (a tool call answers
+  with a page and a code), `FAIL  atlas  no atlas on this PC yet` and `WARN  knowledge  ...; members not checked:
+  waits for the atlas`. Each fix names one command, `smartass login`: it signs you in, then builds the atlas.
+- **After `smartass login`:** every check OK. When it ends with "The atlas was not built (...); your sign-in is
+  kept. Run `smartass atlas build` later to build the atlas." (exit code 3), run `smartass atlas build` when EPM
+  answers again (see "atlas" below).
+
+`smartass login`'s exit codes: 0 signed in (and the atlas there, or skipped with `--no-atlas`), 1 a sign-in failed
+(nothing is built), 2 `[oauth]` is not set up, 3 signed in but the atlas the PC lacks was not built.
 
 ## config
 
@@ -115,6 +134,12 @@ asked for a grid. The reply's `routes` counts the grids per engine (`http`, `res
   none.
 - **Fix:** FAIL: the one command it names - `smartass login` while a sign-in is missing (it signs in, then builds the
   atlas), else `smartass atlas build`. WARN: Run `smartass atlas build`.
+- **Symptom (a tool call):** a reply "no atlas on this PC yet (<path>): every answer is built on it - run
+  `smartass login` in a terminal (it signs you in to EPM, then builds the atlas), then ask again" (or "run
+  `smartass atlas build` in a terminal ..." when you are signed in). `fin_lookup` still answers from the knowledge
+  base already on the PC (metrics, rules, entities ...), with one warning: "no atlas on this PC yet (<path>): no
+  cube member is found and no answer can be built - run ..."; it finds no member until the atlas is built.
+- **Fix:** run the one command the reply names in a terminal, then ask again.
 
 `smartass atlas build` (since 0.7.0) reads every dimension over Planning REST with your sign-in: read-only, no Excel,
 the member trees of both pods in about 25 s (docs\audit\2026-11-22-atlas-rest.md); a full build then derives the
@@ -147,8 +172,7 @@ every dimension was built. `smartass atlas status` shows the last attempt as `la
 - **Cause:** the atlas was built before 0.7.0 (or an older release rebuilt those dimensions since). It works, but
   without the strict member check over Planning REST: when a grid comes over the second route, smartass cannot check
   that EPM answered for the member it asked for, in the rare case where one member's key is another member's name.
-- **Fix:** Rebuild once with `smartass atlas build`. `smartass setup` never replaces an atlas that has the real
-  names with a release copy that has none; it says "atlas: local copy kept" and why.
+- **Fix:** Rebuild once with `smartass atlas build`.
 
 ## output
 
@@ -159,6 +183,14 @@ every dimension was built. `smartass atlas status` shows the last attempt as `la
 
 ## leftovers
 
+What an older release left is removed by the command that owns it. `smartass setup` removes what would start or run
+old code: the Startup entries and this install's old background processes. `smartass doctor --fix` removes files and
+edits `config.toml`, after a backup copy (and does setup's part too, when setup was not run). Each says every thing
+before it does it, and acts only on what belongs to this install. What lives in Office's own settings is yours to
+remove in Excel (below). `smartass setup`'s last line says what comes next: "leftovers: ... run `smartass doctor`,
+then `smartass doctor --fix`", or, when only steps by hand are left, "... run `smartass doctor` and follow its
+manual steps". The `leftovers` check runs in `smartass doctor` (and `--bundle`) only, not in `fin_status`.
+
 - **Symptom:** `WARN  leftovers  an older smartass crashed with Smart View's options changed; the originals recorded in
   ...\smartview_options_original.json: ...` and/or `N VBA bridge add-in file(s) of an older release in ... (unused)`.
 - **Cause:** a release before 0.7.0 ran a hidden Excel of its own with Smart View, changed three of Smart View's global
@@ -166,10 +198,18 @@ every dimension was built. `smartass atlas status` shows the last attempt as `la
   those options back now. The `svbridge_*.xlam` files are add-ins it built; nothing uses them now.
 - **Fix:** Set the recorded values back by hand in Excel: Smart View ribbon > Options (close the other Excels
   first). Then run `smartass doctor --fix`: it names each file and removes it. A bridge file still loaded in an Excel
-  stays (it says so): close that Excel and run it again. A copy in the old svkit folder is reported, never changed.
+  stays (it says so): close that Excel and run it again.
+- **Symptom:** `WARN  leftovers  Smart View's options differ from the originals an older smartass recorded in
+  ...\svkit\smartview_options_original.json: ...`.
+- **Cause:** an older smartass always kept that record in the old svkit folder. It is reported only when Smart View's
+  stored options (read from the registry, without starting anything) really differ from it.
+- **Fix:** set those values back by hand in Excel: Smart View ribbon > Options (close the other Excels first); or,
+  when the values you have now are the ones you want, delete the record by hand. `smartass doctor --fix` never
+  changes the old svkit folder.
 - At server start smartass also ends an Excel such a release started hidden and left running, but only one its
   `pids.json` proves was its own; then that file goes. `smartass setup` removes that release's sign-in watcher from
-  the Startup folder and stops it when it runs from this install.
+  the Startup folder and stops it when it runs from this install ("startup: stopping the old Smart View SSO watcher
+  (pid N): the SSO watcher is gone").
 
 **The HTTP API and the Excel task pane (up to 0.7.0)**
 
@@ -179,11 +219,12 @@ every dimension was built. `smartass atlas status` shows the last attempt as `la
 - **Cause:** a release up to 0.7.0 ran a localhost HTTP API (`smartass serve`, started at logon by the Startup entry
   `smartass-engine.lnk`, with its secret in `secret.bin`) for an Excel task pane. Both are gone: the agent starts the
   MCP server itself, and nothing runs at logon.
-- **Fix:** run `smartass setup` or `smartass doctor --fix`. They remove the Startup entry when it starts this install's
-  `.venv`, and stop that `serve` when its executable is in this install's `.venv` (another install's entry and
-  `serve` are left, and said); `doctor --fix` also
-  removes `secret.bin`, the plain secret line (the value is never shown) and a Startup entry of the pane, each named
-  first.
+- **Fix:** run `smartass setup`. It removes the Startup entry when it starts this install's `.venv`, and stops that
+  `serve` when its executable is in this install's `.venv`. Another install's entry and `serve` are left, and said
+  (an install from the release folder: see below). Then run `smartass doctor --fix`. It removes `secret.bin`, the
+  plain secret line in config.toml (the value is never shown) and a Startup entry of the pane, each named first. The
+  backup copy of config.toml it makes first still holds that secret, and it says so: delete the copy when you no
+  longer need it.
 - The pane's registration lives in Office's own settings, which smartass never changes. Remove it in Excel:
   - **The add-in catalogue:** File > Options > Trust Center > Trust Center Settings > Trusted Add-in Catalogs: select
     the catalogue ending in `TNClaudeCatalog`, Remove, tick "Next time Office starts, clear all previously-started
@@ -202,9 +243,26 @@ every dimension was built. `smartass atlas status` shows the last attempt as `la
 - **Cause:** a release up to 0.7.0 updated itself from a shared release folder (`smartass update`) and copied the
   monthly atlas from there. Both are gone: smartass is updated from git, and `smartass login` builds the atlas over
   EPM when there is none (`smartass atlas build` rebuilds it at any time).
-- **Fix:** run `smartass doctor --fix`: it names the settings (never their values) and takes the `[release]` and
-  `[http]` sections out of config.toml, and removes the record. A setting written another way (a dotted key, an
-  inline table) is said to be left: delete it by hand.
+- **Fix:** run `smartass doctor --fix`: it names the settings (never their values), copies config.toml to
+  `config.toml.bak-<date>` next to it, takes the `[release]` and `[http]` sections out, and removes the record. It
+  writes config.toml only when the result is exactly your settings without those two sections; otherwise it leaves
+  the file as it is and names the lines to delete by hand. A setting written another way (a dotted key, an inline
+  table) is said to be left: delete it by hand.
+
+**An install from the release folder (`%LOCALAPPDATA%\smartass\app`)**
+
+- **Symptom:** `WARN  leftovers` naming "the Startup entry smartass-engine.lnk of another smartass install: left as it
+  is - remove it there" or "a `smartass serve` of another smartass install runs (pid N): left as it is - stop it
+  there", on a PC where the old installer script once copied smartass to `%LOCALAPPDATA%\smartass\app`.
+- **Cause:** that copy has no git, so it cannot be updated, and its Startup entry and background service are its own:
+  a copy from the repository leaves them.
+- **Fix,** by hand and in this order:
+  1. Delete its Startup entry: Win+R, `shell:startup`, delete `smartass-engine.lnk`.
+  2. End its background service: log off and on (with the entry gone, it does not start again).
+  3. Delete the folder `%LOCALAPPDATA%\smartass\app`, and only that folder: `config.toml`, your sign-ins and the atlas
+     are in the folder above it and stay. Its entry in your user PATH then points nowhere and does no harm.
+  4. Install from the repository (README, "Install"); `smartass setup` points your agents at the new copy. Then run
+     `smartass doctor` and `smartass doctor --fix` for the rest.
 
 ## Any check: `FAIL  <check>  <ExceptionType>: <message>`
 

@@ -102,3 +102,42 @@ version line only, `VERSION`). A docs guard as in 0.7.0: the docs name no delete
 On the owner's PC after the merge: `smartass setup`'s leftover steps only (the Startup shortcut), `doctor` then
 `doctor --fix` (the secret file, the pane's registration outside Excel); anything that changes what Excel loads
 (the pane's manifest in Excel) only on his explicit answer.
+
+
+## As built (2026-11-22)
+
+What differs from the tasks above. The ledger of every ruling is
+`.superpowers/sdd/2026-11-22-light-fast-p4-slim/progress.md`.
+
+- **Task 1** also made `doctor --fix` stop this install's `serve` and remove `smartass-engine.lnk` (the global
+  constraint has the doctor find both; a WARN only setup could clear seemed wrong). The pane was registered in two
+  places of Office's own settings (a Trusted Add-in Catalogs entry and an `OPEN<n>` value for the classic add-in in
+  the old svkit home). By ruling, the doctor only reports them with the steps in Excel: smartass writes nothing under
+  Office's registry keys, and no code to remove them was written. The first process listing took minutes on a real
+  PC; it now asks for names only and reads a command line only for a Python.
+- **Task 2** deleted `installer/install.ps1` instead of rewriting it (the smaller of the two): the README holds the
+  three commands. `docs/release.md` was rewritten (a release is a tag and its CHANGELOG entry), not deleted. By
+  ruling, a PC with no atlas gets one predicate (`atlas.present`, read only) and one command in every message
+  (`smartass login` while a sign-in is missing, else `smartass atlas build`). Its review found that an older
+  release-folder install (`%LOCALAPPDATA%\smartass\app`) gets no automatic migration: by ruling, the steps are by
+  hand, in the README, the CHANGELOG and troubleshooting.
+- **Task 3** took the carry-ins of both reviews: `fin_lookup` answers from an existing knowledge.db without an atlas
+  (one warning); `doctor --fix` edits `config.toml` on its bytes after a backup and writes it only when it parses as
+  the old settings without `[release]` and `[http]`; login's exit code 3; the old SSO watcher stopped through its
+  process object; no atlas.db made by a read. By ruling, `setup` keeps the Startup entries and old processes (what
+  would start or run old code) and every file and config edit is `doctor --fix`'s; setup's last line points at
+  doctor. The doctor's leftovers false alarm on the old svkit record (seen on the owner's PC) was fixed: it warns only
+  when Smart View's stored options differ. New: `scripts/check_fresh_home.py`, the plan's proof, as a script and a
+  test.
+- **Task 4** also took the Task 3 review's fixes: the fresh-home test runs the driver in-process with Excel pointed at
+  a file that exists (CI has no desktop Excel; the script keeps its real check); a failed `config.toml` write leaves
+  no `.tmp` and a retry adds no second backup; the fix says when its backup still holds the old plain secret;
+  setup's last line sends the user to doctor's manual steps when `--fix` can clear nothing; small fixes of
+  `connect_read` and `open_without_atlas`; every `fin_lookup` kind pinned without an atlas. A docs guard for this
+  phase's names (`tests/test_no_updater.py`) also checks the MCP instructions. The instructions were not changed:
+  nothing in them was false, and they are at 2 487 of their 2 500 characters.
+- **Kept, though the plan's text could read otherwise:** the `xl_*` MCP tools (only the CLI twins went), the relay,
+  and `ops/pane_leftovers.py` (read only, for the leftovers check).
+- **Owed on the owner's PC after the merge (controller, with his word):** `smartass setup` (the Startup entry),
+  `smartass doctor`, `smartass doctor --fix`, and the two steps in Excel. The stop of a running old `serve` was
+  proven with stand-ins only.

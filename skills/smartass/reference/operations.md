@@ -116,7 +116,8 @@ read.
 | `smartass doctor` (`--json`, `--bundle`, `--fix`) | Health checks with a fix per problem; `--bundle` zips logs, redacted config and versions for the maintainer; `--fix` removes what an older release left (each thing named first; an old task pane's registration in Office's settings is only reported, with the steps in Excel) |
 | `smartass atlas status` / `smartass atlas build [--cube X] [--dimension D]` | Atlas age and the last build's outcome; rebuild over Planning REST with the user's sign-in (read-only, no Excel; the member trees in about 25 s, then about two minutes more for the behaviour cards from data). It replaces the atlas only when every dimension was built, else says `NOT replaced (<why>)`. Then `gen_atlas_md.py` refreshes `reference\cubes.md` |
 | `smartass login` (`--status`, `--force`, `--forget`, `--no-atlas`) | EPM sign-in for the bearer route: prints a page and a code (page opens, code on the clipboard), waits for the approval. Needed once, and again after 7 days without use. On a PC with no atlas it then builds one (about half a minute, then the behaviour cards; never over an atlas that is there; `--no-atlas` skips it) |
-| `smartass setup` | Per-user setup (config, MCP entries, skill link, PATH); removes an older release's Startup entries and stops its `smartass serve` when it is this install's |
+| `smartass setup` | Per-user setup (config, MCP entries, skill link, PATH); removes an older release's Startup entries and stops its `smartass serve` when it is this install's; its last line says when `smartass doctor` (and `--fix`) has more to do |
+| `smartass knowledge build` / `refresh` / `approve <id\|all>` / `status` | The knowledge layer: build knowledge.db; the monthly refresh (atlas, diff, drafts, report); approve drafts; status |
 
 ## Errors and what they mean
 
@@ -124,6 +125,7 @@ Every error names one next step. The common ones:
 
 | Symptom | Meaning / action |
 |---|---|
+| `` no atlas on this PC yet (…): every answer is built on it - run `smartass login` in a terminal … `` (or `` … run `smartass atlas build` … ``) | The PC has no member atlas (a new PC, or a login run with `--no-atlas`): nothing was drawn. Ask the user to run the one command it names in a terminal, then call again. `fin_lookup` still answers from the knowledge base with one warning of the same kind; it finds no member until the atlas is built. |
 | `unknown entity 'X' in FinMax - find the member with fin_lookup` (or an unknown metric) | Hard guard: nothing was drawn. Look the name up and send the spec again. |
 | `invalid spec: …` / `Extra inputs are not permitted` | The spec breaks the contract (unknown field, a block metric not in its query, budget on a FinMax query …). Fix the named field. |
 | `query q1: Actual covers … but … covers …` | Actual and plan periods do not line up; set `plan_periods` or align `periods`. |

@@ -2,6 +2,160 @@
 
 ## Unreleased
 
+### The task pane, the background service and the updater are gone (0.8.0)
+
+**What changed for you**
+
+- **smartass is now one thing: the MCP server your agent starts.** It answers in your Excel as before. Tool names,
+  parameters and reply fields are unchanged.
+- **Gone:**
+  - the Excel task pane (the TNClaude ribbon button and its panel) and the small local server it used;
+  - the background service that started at logon (`smartass serve`, the HTTP API the pane used) and its secret file;
+  - the pane's commands on the command line (`smartass xl changes`, `smartass xl revert`, `smartass xl check`). The
+    MCP tools `xl_snapshot`, `xl_revert` and `xl_tidy` stay;
+  - the updater (`smartass update`), the release folder it read and the monthly copy of the member catalogue (the
+    atlas) from there;
+  - the installer script (`installer\install.ps1`).
+
+  Nothing of smartass runs at logon any more. Your agent starts the server when it needs it.
+- **A new PC is set up with three commands:** `uv sync`, `smartass setup` and `smartass login`. Between setup and
+  login, add the `[oauth]` settings to the `config.toml` that setup wrote (README, "Install"). `smartass login` signs
+  you in, then builds the member catalogue when the PC has none: about half a minute, then about two minutes for the
+  behaviour cards. `smartass login --no-atlas` skips the build. When you are signed in but the catalogue was not
+  built, login says which command to run later and ends with exit code 3.
+- **A tool call on a PC without a member catalogue names one command.** The reply says "no atlas on this PC yet" and
+  what to run in a terminal: `smartass login` while a sign-in is missing (it signs in, then builds the catalogue),
+  else `smartass atlas build`. Then ask again. `fin_lookup` keeps answering from the knowledge base the PC already
+  has (metrics, rules, entities and the like), with one warning that names the same command; it finds no cube member
+  until the catalogue is built. The other tools refuse until then.
+- **Updates come from git:** `git pull`, then `uv sync` in `engine`. A release is a tag and its entry here
+  (docs\release.md).
+- **The health check no longer warns for ever about the old svkit folder.** An older smartass kept a record of three
+  of Smart View's options there. `smartass doctor` now warns about it only when Smart View's stored options really
+  differ from that record. It reads them from the registry, without starting anything. A record in smartass's own
+  folder (left by a run that crashed) is reported as before.
+- **`smartass setup` says what is left.** When an older release left files or settings, its last line says to run
+  `smartass doctor`, then `smartass doctor --fix`. When only steps by hand are left (in Excel), it says to run
+  `smartass doctor` and follow its manual steps.
+
+**Upgrading from 0.7.0**
+
+Each leftover is removed by the command that owns it. `smartass setup` removes what would start or run old code: the
+Startup entry and the old background service. `smartass doctor --fix` removes files and edits `config.toml` (and
+does setup's part too, when setup was not run). Both act only on what belongs to this install, and say each thing
+before they do it.
+
+1. Get the new code: `git pull`, then `uv sync` in `engine`.
+2. Run `smartass setup`. It removes the old Startup entry `smartass-engine.lnk` and stops this install's old
+   background service (`smartass serve`) if it runs.
+3. Run `smartass doctor` in a terminal and read its `leftovers` line. (`fin_status` leaves that check out.)
+4. Run `smartass doctor --fix`. It says each thing first. It removes the old secret file `secret.bin`. It takes the
+   settings no longer used (`[release]` and `[http]`) out of `config.toml`, after a backup copy next to it
+   (`config.toml.bak-<date>`); when that copy holds the old plain secret, it says so: delete the copy when you no
+   longer need it. It removes the other files an older release left. Where it cannot change `config.toml` safely,
+   it leaves the file as it is and names the lines to delete by hand.
+5. By hand in Excel (`smartass doctor` lists both, with these steps, until they are done):
+   - File > Options > Add-ins > Manage: Excel Add-ins > Go: untick "TNClaude" (the pane's ribbon button), OK, and
+     restart Excel. Then delete the add-in's folder that `smartass doctor` names.
+   - File > Options > Trust Center > Trust Center Settings > Trusted Add-in Catalogs: remove the entry for a network
+     folder named TNClaudeCatalog, tick "Next time Office starts, clear all previously-started web add-ins cache",
+     OK, and restart Excel.
+
+   smartass never changes what Excel loads and never edits Office's registry keys.
+6. Reconnect every open Claude Code session (`/mcp`), so each one runs 0.8.0.
+
+**A PC that still runs an install from the release folder**
+
+The old installer script copied smartass to `%LOCALAPPDATA%\smartass\app`. That copy has no git, so it cannot be
+updated, and its Startup entry and background service belong to it: a new copy's `smartass setup` leaves them and
+says "another smartass install's". Move to the repository by hand, in this order:
+
+1. Delete its Startup entry: Win+R, `shell:startup`, delete `smartass-engine.lnk`.
+2. End its background service: log off and on (with the entry gone, it does not start again).
+3. Delete the folder `%LOCALAPPDATA%\smartass\app`, and only that folder. Your `config.toml`, sign-ins and atlas
+   are in the folder above it and stay. Its entry in your user PATH then points nowhere and does no harm.
+4. Install from the repository: the three commands in the README. `smartass setup` points your agents at the new
+   copy. Then go on with step 3 of "Upgrading from 0.7.0".
+
+**What a PC no longer needs**
+
+- A Startup entry or a background service: nothing of smartass runs at logon.
+- `secret.bin`, and the `[release]` and `[http]` settings in `config.toml`.
+- Access to the shared release folder.
+
+**Known limits / open items**
+
+Carried from 0.7.0, still true:
+
+- Over Planning REST a cell you may not read reads as empty, not #NoAccess: Oracle exports only cells with read-write
+  access and documents no marker. Never seen live.
+- EPM's account type and time balance are stored in the atlas but not used yet: the behaviour cards still derive
+  theirs from data. Using EPM's would newly decide many FinPlan accounts: a decision for later.
+- Two members with one key under one parent keep one label in the atlas; all their real names are kept.
+- Over Planning REST smartass sends the atlas's key of a member, not its real EPM name. EPM resolved those keys in
+  every gated grid.
+- Some stored FinPlan requests name an entity EPM no longer has. Their grid is not fetched, and the reply warns and
+  names the entity: ask them again with today's entity.
+- A Smart View Login that opens later than 25 seconds after smartass started an Excel (a slow PC) is not caught
+  before the first step there: that answer then waits until its 10-minute limit.
+- If the stored look of a new workbook has an unusual column width, every first workbook made with no Excel open is
+  a plain one, and none is kept as the copy for the next one.
+- The second route finds EPM's server through the first route's list of data sources. When that list cannot be
+  read, the second route cannot run either; the reply then says why.
+- Over Planning REST numbers come as text. Under a preference with "." as the thousands separator this is not
+  proven: a cell like "5.000" would read as 5, while other such texts stop that grid with an error.
+- Only the reading of an answer from EPM has an overall time limit. A server that sends the start of its answer very
+  slowly is limited only by the time each read may take.
+- Two answers that both start an Excel at the same moment can pick the same new Excel.
+- An Excel smartass starts is one of the smartass server's processes. Anything that ends the server's processes from
+  outside may end that Excel with them. smartass's own stop of a server that does not exit never ends an Excel. (The
+  task pane's Stop, which did end it, is gone with the pane.)
+
+New in 0.8.0:
+
+- `smartass setup`'s stop of a running old background service was tested with stand-ins, not on a PC where that
+  service runs.
+- When Smart View's stored options cannot be read as plain XML, the health check says nothing about the old svkit
+  folder's record, also when it differs.
+
+**Details**
+
+- Deleted: `addin/` (the pane: its web add-in, `server.mjs`, start scripts and manifest), `ops/httpapi.py`, `cli`'s
+  `serve`, `xl` and `update`, `ops/update.py`, `config`'s `HTTP_SECRET` / `SECRET_FILE` / `load_http_secret` and
+  `RELEASE_FOLDER` / `RELEASE_PIN` (and `SMARTASS_RELEASE`), `[release]` and `[http]` in `defaults.toml`,
+  `logsetup.add_secret`, `setup_user.secret_step`, `make_shortcut` and `copy_atlas`, the doctor's `http_api` and
+  `update` checks, `scripts/publish_release.ps1` and `installer/install.ps1`. `docs/release.md` says what a
+  release is now.
+- The command line: `doctor`, `setup`, `login`, `atlas`, `knowledge`. The doctor's checks: `config`, `excel`,
+  `smartview_startup`, `epm`, `oauth`, `atlas`, `knowledge`, `output`, and `leftovers` (the command and
+  `--bundle` only: it lists processes and reads the Startup folder).
+- `leftovers` (`ops/doctor.py`, `ops/pane_leftovers.py`): this install's `smartass-engine.lnk` (its target read
+  through WScript.Shell; another install's is left and said) and running `serve` (ours when its executable is in
+  this install's `.venv`, or its parent's is), `secret.bin`, a plain `[http] secret`, `release.*` / `http.*`
+  settings, `update_attempt.json`, the pane's Startup entry, and the pane's registration in Office's settings
+  (Trusted Add-in Catalogs matched by the folder name only, never read; an `OPEN<n>` value naming
+  `TNClaude64.xll`), read only and reported with the steps in Excel. The old svkit record counts only when
+  `HKCU\Software\Hyperion Solutions\HyperionSmartView\Options` `CAOptionsXML` (`messageDisplay`,
+  `bDisplayHomePanelOnStartup`, `bCommentDlgEnable`) differs from it.
+- `doctor --fix` and `config.toml`: read and written as bytes (line ends kept); a backup first
+  (`config.toml.bak-<date>`, `-2` ... never over an earlier one; one of the same day with the same bytes is used
+  again); written only when the result parses as the old settings without `[release]` and `[http]`, else left
+  byte for byte with the lines to delete said; a failed write leaves no `.tmp`.
+- `smartass setup` writes no Startup entry. It removes the SSO watcher's entries and `smartass-engine.lnk` when it is
+  this install's, and stops this install's old `serve` and old SSO watcher through the process its listing found
+  (a pid taken since by another process is never hit). The watcher's line is said before the stop: "startup:
+  stopping the old Smart View SSO watcher (pid N): the SSO watcher is gone". Its last line comes from
+  `doctor.pending_leftovers` / `fixable_leftovers` (no process listing).
+- `smartass login` exit codes: 0 signed in (and the atlas there, or skipped), 1 a sign-in failed, 2 not set up, 3
+  signed in but the atlas the PC lacks was not built.
+- No atlas (`knowledge/atlas.py`: `present`, `need_atlas`, `no_atlas_command`): a missing file or one without
+  members; read without creating a file, never waiting on a lock. `fin_status` and `smartass atlas status` make no
+  `atlas.db` on a fresh home.
+- Proofs: `tests/test_no_http_server.py` (no engine source opens a listening socket or holds an HTTP server);
+  docs guards (`tests/test_neutral_imports.py`, `tests/test_no_http_server.py`, `tests/test_no_updater.py`);
+  `scripts/check_fresh_home.py`: setup and doctor on a new home in a temp folder of its own, with only the sign-in
+  and the atlas left to do (`tests/test_fresh_home.py` runs it with Excel pointed at a file that exists).
+
 ### Every fetch over HTTPS; smartass's own Excel is gone (0.7.0)
 
 **What changed for you**

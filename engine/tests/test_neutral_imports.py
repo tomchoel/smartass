@@ -230,6 +230,7 @@ DOC_TIMES = {
     ("docs/DESIGN.md", "hidden Excel"): (4, "check_insert ran in the engine's hidden Excel of 0.6.0 and now in one of "
                                            "its own; two measurements made in a script's own hidden Excel"),
     ("docs/troubleshooting.md", "hidden Excel"): (2, "what a release before 0.7.0 ran; check_fastcom's own Excel"),
+    ("docs/troubleshooting.md", "SSO watcher"): (2, "setup's line when it stops an older release's watcher, quoted"),
 }
 
 

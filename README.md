@@ -24,8 +24,7 @@ v1 (the `sv_*` tools and the `xl_*` workbench) was retired in November 2026; the
 
 ## Install (colleagues)
 
-Needs git, [uv](https://docs.astral.sh/uv/getting-started/installation/) and desktop Excel. Per user, no admin rights,
-safe to re-run:
+Needs git, [uv](https://docs.astral.sh/uv/getting-started/installation/) and desktop Excel. Per user, no admin rights:
 
 ```powershell
 git clone https://github.com/tomchoel/smartass.git; cd smartass\engine
@@ -40,10 +39,24 @@ Copilot CLI, links the skill and puts `smartass` on your user PATH. EPM access n
 (identity domain, client id, a scope per pod; docs\troubleshooting.md, "oauth") before `smartass login`, which signs
 you in (one approval in your browser; no browser is installed or started by smartass) and builds the member atlas
 when there is none (about half a minute, then the behaviour cards; `--no-atlas` skips it, `smartass atlas build`
-builds it later). Then restart Copilot CLI or Claude Code, open a new terminal and run `smartass doctor`.
+builds it later). When you are signed in but the atlas was not built, `smartass login` says so and ends with exit
+code 3. `smartass setup` and `smartass login` can be run again at any time. Then restart Copilot CLI or Claude Code,
+open a new terminal and run `smartass doctor`. Nothing of smartass runs at logon: the agent starts the MCP server.
 Update: `git pull`, then `uv sync --frozen` in `engine` (and `smartass setup` when the CHANGELOG says so).
 Working on smartass itself: `git config core.hooksPath .githooks` turns on the pre-commit data and secret guard.
 Problems: [docs\troubleshooting.md](docs/troubleshooting.md).
+
+## Upgrading
+
+From 0.7.0: [CHANGELOG.md](CHANGELOG.md), "Upgrading from 0.7.0" - `git pull` and `uv sync`, `smartass setup`,
+`smartass doctor`, `smartass doctor --fix`, then two steps by hand in Excel that `smartass doctor` lists.
+
+A PC where the old installer script copied smartass to `%LOCALAPPDATA%\smartass\app` cannot be updated there (that
+copy has no git), and a new copy leaves that copy's Startup entry and background service alone. By hand, in this order:
+delete `smartass-engine.lnk` from the Startup folder (Win+R, `shell:startup`); log off and on; delete the folder
+`%LOCALAPPDATA%\smartass\app` and only that folder (`config.toml`, the sign-ins and the atlas are in the folder above
+it and stay); then install as above and run `smartass doctor` and `smartass doctor --fix`. Details:
+docs\troubleshooting.md, "leftovers".
 
 ## Data safety
 
@@ -65,11 +78,15 @@ Problems: [docs\troubleshooting.md](docs/troubleshooting.md).
 
 ## Command line
 
-`smartass doctor [--json | --bundle | --fix]`, `smartass atlas status`,
-`smartass atlas build [--cube X] [--dimension D]` (over Planning REST, no Excel), `smartass setup`,
-`smartass login [--status | --force | --forget | --no-atlas]` (EPM sign-in for the bearer route; builds the atlas on a
-PC that has none; see
-`docs\troubleshooting.md`, "oauth").
+Five commands:
+
+- `smartass doctor [--json | --bundle | --fix]`: the health checks; `--fix` removes what an older release left.
+- `smartass setup`: per-user setup (config, MCP entries, skill link, PATH; an older release's Startup entries).
+- `smartass login [--status | --force | --forget | --no-atlas]`: the EPM sign-in; builds the atlas on a PC that has
+  none (docs\troubleshooting.md, "oauth").
+- `smartass atlas status | build [--cube X] [--dimension D] | cards`: the member atlas, built over Planning REST
+  (read-only, no Excel).
+- `smartass knowledge build | refresh | approve <id|all> | status`: the knowledge layer and its monthly refresh.
 
 ## Layout
 
@@ -77,7 +94,7 @@ PC that has none; see
 .github\workflows\ci.yml     CI: ruff, pytest, data/secret guard
 .githooks\pre-commit         runs scripts\check_staged.py
 docs\                        DESIGN, troubleshooting, release, specs, plans (docs\archive: earlier designs)
-scripts\                     check_staged.py, bump.ps1
+scripts\                     check_staged.py, bump.ps1, check_fresh_home.py (a fresh install's proof)
 knowledge\  packs\           business maps and metric catalogue; pack-only inputs (packs\produktregnskap)
 skills\smartass\             master copy of the agent skill
 engine\                      run_server.py (relay), child_server.py, VERSION, defaults.toml, tests\

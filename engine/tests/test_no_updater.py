@@ -10,7 +10,7 @@ import subprocess
 import sys
 
 import pytest
-from test_neutral_imports import ENGINE, _rel, _sources
+from test_neutral_imports import DOCS, ENGINE, _rel, _sources, doc_findings
 
 from smartass.core import config
 from smartass.ops import doctor, setup_user
@@ -273,3 +273,53 @@ def test_a_backup_without_a_secret_says_nothing_of_one(home):
     said = []
     doctor.fix_leftovers(say=said.append)
     assert not any("still holds" in s for s in said)
+
+
+# The phase's docs guard (light-fast phase 4 Task 4): the documents a user or an agent reads (DOCS) and the MCP
+# instructions name no part this phase deleted as a current thing. A name may appear exactly as often as listed here:
+# the leftovers and upgrade texts that say what an older release left and how it goes. One use more is a finding.
+P4_NAMES = ["smartass xl", "smartass update", "release folder", "install.ps1", "installer", "secret.bin",
+            "smartass\\app", "local copy kept", "release copy", "TNClaude", "WithAtlas", "monthly atlas",
+            "update_attempt", "at logon"]
+LEFT = "the leftovers text: what an older release left and how it goes"
+P4_TIMES = {
+    ("README.md", "installer"): (1, "Upgrading: a PC the old installer script set up"),
+    ("README.md", "smartass\\app"): (2, "Upgrading: the release-folder install's steps by hand"),
+    ("README.md", "at logon"): (1, "nothing of smartass runs at logon"),
+    ("docs/DESIGN.md", "installer"): (1, "an upgrading PC: the deleted installer script's install"),
+    ("docs/DESIGN.md", "secret.bin"): (1, "an upgrading PC: the files doctor --fix removes"),
+    ("docs/DESIGN.md", "update_attempt"): (1, "an upgrading PC: the files doctor --fix removes"),
+    ("docs/DESIGN.md", "smartass\\app"): (1, "an upgrading PC: the release-folder install is another install"),
+    ("docs/DESIGN.md", "TNClaude"): (1, "an upgrading PC: the pane's add-in in Office's settings, reported"),
+    ("docs/DESIGN.md", "at logon"): (1, "nothing of smartass runs at logon"),
+    ("docs/troubleshooting.md", "smartass update"): (1, LEFT),
+    ("docs/troubleshooting.md", "release folder"): (3, LEFT + "; the release-folder install's steps"),
+    ("docs/troubleshooting.md", "installer"): (1, "the release-folder install: the old installer script"),
+    ("docs/troubleshooting.md", "secret.bin"): (3, LEFT),
+    ("docs/troubleshooting.md", "smartass\\app"): (3, "the release-folder install's steps by hand"),
+    ("docs/troubleshooting.md", "TNClaude"): (5, LEFT + ": the pane's registration, removed by hand in Excel"),
+    ("docs/troubleshooting.md", "monthly atlas"): (1, LEFT),
+    ("docs/troubleshooting.md", "update_attempt"): (1, LEFT),
+    ("docs/troubleshooting.md", "at logon"): (2, LEFT),
+    ("docs/release.md", "release folder"): (1, "there is no release folder"),
+    ("skills/smartass/reference/operations.md", "secret.bin"): (1, "the home's files: left from before 0.8.0"),
+}
+
+
+def test_the_docs_name_no_part_this_phase_deleted_as_a_current_thing():
+    assert doc_findings(ENGINE.parent, DOCS, P4_NAMES, {}, P4_TIMES) == []
+    assert all(why for _, why in P4_TIMES.values())
+
+
+def test_the_phase_docs_guard_fails_on_a_listed_file_that_is_missing(tmp_path):
+    assert doc_findings(tmp_path, DOCS, P4_NAMES, {}, P4_TIMES) == [f"{d}: no such file" for d in DOCS]
+
+
+def test_the_mcp_instructions_name_no_deleted_part():
+    import test_neutral_imports
+    import test_no_http_server
+
+    from smartass import server
+    text = " ".join(server.INSTRUCTIONS.split())
+    names = P4_NAMES + test_neutral_imports.DOC_NAMES + test_no_http_server.DOC_NAMES
+    assert [n for n in names if n in text] == []
