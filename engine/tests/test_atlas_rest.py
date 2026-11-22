@@ -260,7 +260,7 @@ def test_the_source_reads_finlites_trees_once_with_finmaxs(monkeypatch):
             return conn
     reads = []
     monkeypatch.setattr(members, "read_tree", lambda s, app, dim: reads.append((s, app, dim)) or {"name": dim})
-    monkeypatch.setattr(members.rest, "_read_list", lambda s, app, cube: [
+    monkeypatch.setattr(members.rest, "read_dimensions", lambda s, app, cube: [
         ("Accounts", "All Accounts", "Account"), ("Version", None, "Version"), ("Colour", None, "Attribute Text")])
     src = members.Source(Sv())
     assert src.dimensions("FinLite") == [("Accounts", "All Accounts"), ("Version", "Version")]

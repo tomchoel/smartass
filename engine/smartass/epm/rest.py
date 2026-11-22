@@ -212,7 +212,7 @@ def _rest_dimensions(session, conn: str, app: str, cube: str, dims: list[str]) -
             return map_dimensions(conn, dims, listed)
         except RestError:                             # renamed in EPM since it was read: read it again
             pass
-    listed = _read_list(session, app, cube)
+    listed = read_dimensions(session, app, cube)
     try:
         out = map_dimensions(conn, dims, listed)
     except RestError:
@@ -224,8 +224,9 @@ def _rest_dimensions(session, conn: str, app: str, cube: str, dims: list[str]) -
     return out
 
 
-def _read_list(session, app: str, cube: str) -> list[tuple]:
-    """The plan type's dimensions as (name, Default alias, type), one page."""
+def read_dimensions(session, app: str, cube: str) -> list[tuple]:
+    """The plan type's dimensions as (name, Default alias, type), one page - uncached (the atlas build reads them
+    once per build, epm/members.Source; fetch_grid through _rest_dimensions' cache)."""
     r = _send(session, "GET", epmhttp.dimension_list(app, cube) + "?aliasTableName=Default", None, app, cube)
     j = _json(r.text)
     items = j.get("items") if isinstance(j, dict) else None

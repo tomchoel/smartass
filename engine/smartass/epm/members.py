@@ -116,7 +116,7 @@ class Source:
         """(REST name, atlas name) of every dimension of the connection's plan type, attribute dimensions aside: the
         atlas names a dimension by its Default alias, else its name (rest.map_dimensions)."""
         _, app, cube = svhttp.CUBES[conn]
-        listed = rest._read_list(self.sv.rest_session(conn), app, cube)
+        listed = rest.read_dimensions(self.sv.rest_session(conn), app, cube)
         return [(n, a or n) for n, a, *t in listed if not (t and str(t[0]).startswith("Attribute"))]
 
     def tree(self, conn: str, dim: str) -> dict:
