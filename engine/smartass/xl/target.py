@@ -208,8 +208,8 @@ def _new_target(title: str, excels, known: set[int] | None = None, build_new: bo
         t.created = t.new = True
         if jobs.com(lambda: t.wb.ReadOnly):           # as open_new: Excel's Save of it would write nothing, silently
             raise HostError(f"Excel opened the new workbook {path.name} read-only (sensitivity label?), so it could "
-                            f"not save the answer. Nothing was closed: close it in Excel without saving, delete {path}, "
-                            "and ask again.")
+                            "not save the answer. Nothing was closed: close it in Excel without saving, delete "
+                            f"{path}, and ask again.")
         return t
     pid, hwnd, app = choice
     if wb is None and build_new:

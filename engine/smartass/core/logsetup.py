@@ -39,7 +39,8 @@ _PATTERNS = [
      "?..."),                                                      # ... after a space or at the start: a secret key's only
     (re.compile(r"%3F(?=[\w.~-]+%3D)[^\s'\"<>]+", re.I), "%3F..."),           # a URL-encoded query (%3Fname%3D...)
     (re.compile(r"\b((?:proxy-)?authorization[\"']?[ \t]*[:=][ \t]*[\"']?)(?:(?:Bearer|Basic|Digest|Negotiate|NTLM)"
-                rf"[ \t]+[^\s\"',;<>&}}]+|(?:[A-Za-z][\w-]*[ \t]+)?(?=[^\s\"',;<>&}}]*?{_SHAPED})[^\s\"',;<>&}}]+)", re.I),
+                rf"[ \t]+[^\s\"',;<>&}}]+|(?:[A-Za-z][\w-]*[ \t]+)?(?=[^\s\"',;<>&}}]*?{_SHAPED})"
+                r"[^\s\"',;<>&}]+)", re.I),
      r"\1***"),                    # an Authorization header: a scheme's value, else a credential's shape ('approved')
     (re.compile(r"\b(Bearer(?:\s+|%20|\+))(?!\*\*\*)[A-Za-z0-9._~+/=-]{16,}", re.I),
      r"\1***"),                                                   # a token's length: not 'the cost bearer of'
