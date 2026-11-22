@@ -59,8 +59,9 @@ class SvHttpError(Exception):
 
 
 class NoFallback(SvHttpError):
-    """An error the second engine would meet as well - the same token, scope or atlas, or a grid EPM refuses for its
-    members - so the grid is not fetched again over REST: this error is the answer."""
+    """An error the second engine would meet as well - the same token, scope or atlas - or an alias clash it would
+    resolve without saying which (GridRefused), so the grid is not fetched again over REST: this error is the answer.
+    A member the cube does not have is WrongMember, which goes on to REST."""
 
 
 class NoScope(NoFallback):

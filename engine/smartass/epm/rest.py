@@ -38,14 +38,14 @@ stratmodel, compared with the provider route by key paths, types and booleans on
 
 Errors are svhttp.SvHttpError (RestError): EPM refusing the grid (HTTP 400, Oracle's message scrubbed), a 404 on the
 plan type (NotConfigured), an answer that is not the grid asked for, a dimension the plan type lists and the atlas
-lacks (AtlasStale). A 400 whose message is Oracle's sentence for a
-member the plan type does not have there (or the user may not read: _NO_MEMBER, live 2026-11-22) and names a member
-asked - exactly as it was sent, in that dimension - is MemberRefused: data/provider.py leaves a member of an axis of
-several out of the request and fetches it again; a POV member or an axis's only member cannot be left out. A 400
-naming a member that was not asked is never acted on (an error that says to rebuild the atlas). A gate's answer (401, 3xx, 403:
-epmhttp.GATE_STATUSES, as on the provider route) is the session's one new token, then TokenRefused; a lost request is
-svhttp.RequestLost; oauth.NotSignedIn reaches the caller as it is; a query wrong on every route is InputError and a
-stale atlas svhttp.AtlasStale, as on the provider route."""
+lacks (AtlasStale). A 400 whose message is Oracle's sentence for a member the plan type does not have there (or the
+user may not read: _NO_MEMBER, live 2026-11-22) and names a member asked - exactly as it was sent, in that dimension -
+is MemberRefused: data/provider.py leaves a member of an axis of several out of the request and fetches it again; a
+POV member or an axis's only member cannot be left out. A 400 naming a member that was not asked is never acted on
+(an error that says to rebuild the atlas). A gate's answer (401, 3xx, 403: epmhttp.GATE_STATUSES, as on the provider
+route) is the session's one new token, then TokenRefused; a lost request is svhttp.RequestLost; oauth.NotSignedIn
+reaches the caller as it is; a query wrong on every route is InputError and a stale atlas svhttp.AtlasStale, as on
+the provider route."""
 from __future__ import annotations
 
 import json

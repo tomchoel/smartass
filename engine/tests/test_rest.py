@@ -28,7 +28,8 @@ ATLAS = [
     ("FinMax", "All Entities", [("All Entities", "All Entities"), ("un.SY.E1", "E1 Entity one (un.SY)"),
                                 ("un.SY.E2", "E2 Entity two (un.SY)")]),
     ("FinMax", "All Scenarios", [("All Scenarios", "All Scenarios"), ("Actual", "Actual")]),
-    ("FinMax", "All Time Periods", [("All Time Periods", "All Time Periods"), ("Aug 26", "Aug 26"), ("Sep 26", "Sep 26")]),
+    ("FinMax", "All Time Periods", [("All Time Periods", "All Time Periods"), ("Aug 26", "Aug 26"),
+                                    ("Sep 26", "Sep 26")]),
     ("FinPlan", "Account", [("Account", "Account"), ("EBX Ebitda X", "EBX Ebitda X")]),
     ("FinPlan", "All Balance Types", [("All Balance Types", "All Balance Types"), ("Periodic", "Periodic")]),
     ("FinPlan", "Entity", [("Entity", "Entity"), ("1TEC Tech", "1TEC Tech"), ("2BUS Biz", "2BUS Biz")]),
@@ -180,7 +181,8 @@ def test_the_request_is_oracles_grid_definition_with_rests_dimension_names(db):
     _grid(epm, db, pov={"All Scenarios": "Actual"})
     assert epm.sent[0] == ("GET", POD + "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinMax/dimensions"
                                         "?aliasTableName=Default")
-    assert epm.sent[1] == ("POST", POD + "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinMax/exportdataslice")
+    assert epm.sent[1] == ("POST", POD + "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinMax"
+                                         "/exportdataslice")
     assert epm.bodies[1] == {"exportPlanningData": False, "gridDefinition": {
         "suppressMissingBlocks": False, "suppressMissingRows": False, "suppressMissingColumns": False,
         "pov": {"dimensions": ["BalanceTypes", "Currencies", "Scenarios"],
@@ -443,7 +445,8 @@ def test_a_member_the_atlas_does_not_know_keeps_its_name_and_adds_one_warning(db
     ("", None), (" ", None), (None, None),       # live: REST's "" where the provider's Fetched holds None
     ("#Missing", "#Missing"), ("#missing", "#Missing"),
     ("#NoAccess", "#NoAccess"), ("#Invalid", "#Invalid"),
-    ("1234.5", 1234.5), ("-0.1", -0.1), ("1e3", 1000.0), (" 42 ", 42.0), (7, 7.0), (0.30000000000000004, 0.30000000000000004),
+    ("1234.5", 1234.5), ("-0.1", -0.1), ("1e3", 1000.0), (" 42 ", 42.0), (7, 7.0),
+    (0.30000000000000004, 0.30000000000000004),
     ("123456789.12345678", 123456789.12345678), ("0.1", 0.1),
 ])
 def test_a_cell_is_read_as_the_provider_routes_fetched_holds_it(db, cell, want):
@@ -862,5 +865,6 @@ def test_a_member_named_under_another_dimension_than_the_one_asked_is_not_acted_
     "The member ac.C70 does not exist in the Accounts dimension"])
 def test_only_oracles_whole_wrong_member_sentence_names_a_member(db, detail):
     with pytest.raises(rest.RestError) as e:
-        _grid(_Epm(answer=_fails(400, json.dumps({"status": 400, "detail": detail}))), db, accounts=("ac.C30", "ac.C70"))
+        _grid(_Epm(answer=_fails(400, json.dumps({"status": 400, "detail": detail}))), db,
+              accounts=("ac.C30", "ac.C70"))
     assert not isinstance(e.value, rest.MemberRefused)
