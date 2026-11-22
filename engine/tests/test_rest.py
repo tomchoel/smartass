@@ -644,7 +644,10 @@ def test_a_plain_number_is_read_with_any_exponent(db, cell, want):
 
 @pytest.mark.parametrize("cell, said", [(True, "a JSON true"), ([1], "a JSON list"), ({"v": 1}, "a JSON object"),
                                         (float("nan"), "a number that is not finite"),
-                                        ("1e999", "a number that is not finite"), ("9" * 400, "a number that is not finite")])
+                                        ("1e999", "a number that is not finite"),
+                                        ("9" * 400, "a number that is not finite"),
+                                        pytest.param(10 ** 400, "a JSON integer too large for a number",
+                                                     id="a 401-digit integer")])
 def test_a_cell_of_another_json_type_fails_the_grid_by_its_type(db, cell, said):
     with pytest.raises(rest.RestError, match="non-numeric data") as e:
         _grid(_Epm(cell=lambda *a: cell), db, accounts=("ac.C30",), periods=("Sep 26",))

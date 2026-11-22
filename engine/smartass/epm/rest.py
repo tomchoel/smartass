@@ -433,9 +433,14 @@ def _cell(v):
     if v is None:
         return None
     if isinstance(v, (int, float)) and not isinstance(v, bool):
-        if not math.isfinite(v):
+        try:
+            f = float(v)
+        except OverflowError:                         # a JSON integer past a float's range (10**400)
+            raise RestError("non-numeric data in the Planning REST grid: a JSON integer too large for a number"
+                            ) from None
+        if not math.isfinite(f):
             raise RestError("non-numeric data in the Planning REST grid: a number that is not finite")
-        return float(v)
+        return f
     if not isinstance(v, str):
         kind = {True: "true", False: "false"}.get(v) if isinstance(v, bool) else (
             "list" if isinstance(v, list) else "object" if isinstance(v, dict) else type(v).__name__)
