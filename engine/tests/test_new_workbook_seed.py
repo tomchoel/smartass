@@ -29,15 +29,17 @@ def _xlsx(path: Path, custom: str | None) -> Path:
 
 
 class Builds:
-    """target._build_first_file, recorded: each build writes a labelled file (or what made gives)."""
+    """target._build_first_file, recorded: each build writes a labelled file (or what made gives); based: it was built
+    in a stored base (what _build_first_file returns)."""
 
-    def __init__(self, monkeypatch, made=None):
+    def __init__(self, monkeypatch, made=None, based=True):
         self.calls = 0
         self.made = made or (lambda path: _xlsx(path, CUSTOM))
 
         def build(path):
             self.calls += 1
-            return self.made(path)
+            self.made(path)
+            return based
         monkeypatch.setattr(target, "_build_first_file", build)
 
 
@@ -176,7 +178,8 @@ def test_the_first_file_is_built_without_excel_labelled_with_its_sources_log(env
     monkeypatch.setattr(config, "LABEL_SITE", "1676")
     monkeypatch.setattr(target, "new_base", lambda: Base("Aptos Narrow", 11.0, 20, 64))
     monkeypatch.setattr(styling, "template_theme", lambda: None)
-    p = target._build_first_file(env / "out" / "First.xlsx")
+    p = env / "out" / "First.xlsx"
+    assert target._build_first_file(p) is True                  # built in the stored base
     parts = _parts(p)
     assert 'name="Sources"' in parts["xl/workbook.xml"] and len(openpyxl.load_workbook(p).sheetnames) == 1
     custom = parts["docProps/custom.xml"]
@@ -218,3 +221,52 @@ def test_with_no_excel_no_seed_and_no_stored_base_the_user_excel_is_launched_on_
     t = target._new_target("Q", [], set(), build_new=True)
     assert spawned == [(tpl, set(), target.OPEN_TIMEOUT_S)] and saved == [("app", book, "Q")]   # a cold Excel's time
     assert t.wb is book and t.from_template and t.new and t.created and t.made is None
+
+
+# ---- Task 6b: the seed is made only from a file built in a stored base, and written whole
+
+def test_a_first_file_built_without_a_stored_base_is_not_kept_as_the_seed(env, monkeypatch):
+    """Without a stored base the built file is a plain Calibri workbook: kept as the seed, every later cold start would
+    copy it for good (the template route, whose look stores the base, would never run again)."""
+    b = Builds(monkeypatch, based=False)
+    p = target._new_analysis_file("A")
+    assert b.calls == 1 and p.exists() and not config.NEW_WORKBOOK_SEED.exists()
+    target._new_analysis_file("B")
+    assert b.calls == 2 and not config.NEW_WORKBOOK_SEED.exists()
+
+
+@pytest.mark.parametrize("col_px, based", [(None, False), (63, False), (64, True)], ids=["no base", "odd", "stored"])
+def test_the_first_file_says_whether_it_was_built_in_the_stored_base(env, monkeypatch, col_px, based):
+    """The base actually used: none stored, or one whose column width is not a standard one (dropped), is not."""
+    from smartass.render.xlsx import Base
+    from smartass.xl import styling
+    monkeypatch.setattr(target, "new_base", lambda: None if col_px is None else Base("Aptos Narrow", 11.0, 20, col_px))
+    monkeypatch.setattr(styling, "template_theme", lambda: None)
+    assert target._build_first_file(env / "out" / "First.xlsx") is based
+    p = target._new_analysis_file("A")
+    assert p.exists() and config.NEW_WORKBOOK_SEED.exists() is based
+
+
+def test_the_seed_is_written_through_a_temp_file_of_its_own_and_replaced(env, monkeypatch):
+    """Two cold jobs can write the seed at once: each copies to a temp file of its own beside the seed, then
+    os.replace - a reader never sees a torn seed."""
+    copies = []
+    real = target.shutil.copyfile
+    monkeypatch.setattr(target.shutil, "copyfile", lambda a, b: copies.append(Path(b)) or real(a, b))
+    Builds(monkeypatch)
+    a = target._new_analysis_file("A")
+    first = config.NEW_WORKBOOK_SEED.read_bytes()
+    config.NEW_WORKBOOK_SEED.unlink()
+    target._new_analysis_file("B")
+    seed = config.NEW_WORKBOOK_SEED
+    assert len(copies) == 2 and len(set(copies)) == 2
+    assert all(c.parent == seed.parent and c != seed and not c.exists() for c in copies)
+    assert first == a.read_bytes() and target._seed_has_label(seed)
+
+
+def test_a_failed_seed_write_leaves_no_temp_file(env, monkeypatch):
+    Builds(monkeypatch, made=lambda p: p.write_bytes(b"built"))
+    monkeypatch.setattr(target.os, "replace", lambda a, b: (_ for _ in ()).throw(PermissionError("locked")))
+    p = target._new_analysis_file("A")
+    assert p.exists() and not config.NEW_WORKBOOK_SEED.exists()
+    assert sorted(x.name for x in env.iterdir()) == ["out"]

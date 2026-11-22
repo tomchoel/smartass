@@ -627,8 +627,10 @@ def remember_new_base(base) -> None:
 
 def _new_analysis_file(title: str) -> Path:
     """The file of a new analysis workbook when no Excel is running, made without Excel: a copy of the labelled seed
-    under the new name; without a usable seed (or when its copy fails) the file is built (_build_first_file) and kept as
-    the seed for the next time (best effort). Its name is reserved (_reserve) either way."""
+    under the new name; without a usable seed (or when its copy fails) the file is built (_build_first_file) and, when
+    it was built in the stored base, kept as the seed for the next time (_keep_seed, best effort) - one built without
+    it is a plain workbook, and the template route (its look stores the base) must still run for the next one. Its
+    name is reserved (_reserve) either way."""
     seed = config.NEW_WORKBOOK_SEED
     path: Path | None = None
     if _seed_has_label(seed):
@@ -644,31 +646,44 @@ def _new_analysis_file(title: str) -> Path:
         raise HostError(f"Could not create the new workbook in the analysis folder ({e}). Check that the folder "
                         "exists and is writable, then ask again.") from None
     try:
-        _build_first_file(path)
+        based = _build_first_file(path)
     except BaseException:
         try:
             path.unlink(missing_ok=True)
         except OSError:
             pass
         raise
-    try:
-        seed.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(path, seed)
-    except OSError:
-        pass
+    if based:
+        _keep_seed(path, seed)
     return path
 
 
-def _build_first_file(path: Path) -> Path:
+def _keep_seed(path: Path, seed: Path) -> None:
+    """path copied as the seed, whole: to a temp file of its own beside the seed, then os.replace (two cold jobs can
+    write the seed at once; a torn seed could still pass _seed_has_label). Best effort: a failure leaves no temp file."""
+    tmp = seed.with_name(f"{seed.stem}.{uuid.uuid4().hex}.tmp")
+    try:
+        seed.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(path, tmp)
+        os.replace(tmp, seed)
+    except OSError:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def _build_first_file(path: Path) -> bool:
     """A new workbook's file built without Excel (render/xlsx.build_sources): its furnished Sources log, our sensitivity
     label as custom document properties (label_properties: such a file opens labelled with AutoSave on and its Save
     writes - live, 20.11.2026), the TN template's theme when that file is there, and the stored base of a new workbook
     when one is known (new_base), else XlsxWriter's defaults. No label configured (config.LABEL_ID empty): no label
-    properties."""
+    properties. True when it was built in the stored base (the only kind kept as the seed)."""
     from ..render import xlsx
     from . import styling
     base = new_base()
     if base is not None and base.col_px not in xlsx.STANDARD_COLUMNS:
         base = None
     props = label_properties() if config.LABEL_ID else {}
-    return xlsx.build_sources(path, base, xlsx.NewBook(props, styling.template_theme()))
+    xlsx.build_sources(path, base, xlsx.NewBook(props, styling.template_theme()))
+    return base is not None

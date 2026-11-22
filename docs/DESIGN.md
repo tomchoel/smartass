@@ -108,7 +108,8 @@ Every other Excel job (read, write, pivots, Power Query, charts) is Excel MCP. E
    without the template, and in an Excel started for a parallel agent. With no Excel running (`_new_target`): a copy
    of the labelled seed when there is one (found also when Excel keeps the label in `docMetadata/LabelInfo.xml`, as
    it does on this tenant); else, with a stored base or without the template, a "Sources" workbook built without
-   Excel (`render/xlsx.build_sources`: the label as document properties, the TN theme), kept as the seed; else
+   Excel (`render/xlsx.build_sources`: the label as document properties, the TN theme), kept as the seed only when
+   it was built in the stored base (written to a temp file, then replaced: two cold jobs can write it at once); else
    your Excel launched on the TN template and saved as (`_spawn_excel`, `_save_new`), whose look stores the base.
    A seed or a built file is opened by launching Excel on it (`_open_path`); none of this needs an Excel of the
    engine's own.
