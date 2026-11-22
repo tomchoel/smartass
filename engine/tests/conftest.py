@@ -35,13 +35,15 @@ def _address_ok(sock, address) -> bool:
 @pytest.fixture(autouse=True, scope="session")
 def _no_excel_no_network():
     """The suite never starts Excel and never reaches the network, whatever a default is (2026-11-22: a test reached
-    atlas_build.run_build's hidden-Excel route and started the engine's Excel). For the whole session - module-scoped
-    fixtures and import-time code of test modules included - the lowest start points in this process fail with an
-    AssertionError: DispatchEx of Excel.Application (xl/host.py, the hidden Excel), the SSO dialog watcher that start
-    launches (epm/sso.py), the user's Excel (xl/target._launch_excel); a socket connect, a name lookup or an asyncio
-    connect (the Windows proactor's ConnectEx too) to anything but this machine. A test that fakes one of them sets
-    its own fake over this one (monkeypatch restores the guard after it). Out of reach: CHILD PROCESSES a test starts
-    (tests/stdio_util.py's server, the scripts some tests run) carry none of these patches."""
+    atlas_build.run_build's hidden-Excel route and started the engine's Excel). From the first test's setup to the end
+    of the session - every test and every fixture, module- and session-scoped ones included - the lowest start points
+    in this process fail with an AssertionError: DispatchEx of Excel.Application (xl/host.py, the hidden Excel), the
+    SSO dialog watcher that start launches (epm/sso.py), the user's Excel (xl/target._launch_excel); a socket connect,
+    a name lookup or an asyncio connect (the Windows proactor's ConnectEx too) to anything but this machine. A test
+    that fakes one of them sets its own fake over this one (monkeypatch restores the guard after it). Out of reach:
+    CHILD PROCESSES a test starts (tests/stdio_util.py's server, the scripts some tests run) carry none of these
+    patches; and code a test module runs when it is imported (collection comes before this fixture's setup) - keep
+    start points out of module level."""
     import asyncio
     import socket
 

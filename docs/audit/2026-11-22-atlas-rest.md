@@ -95,8 +95,8 @@ together (today's build table records 133 s of hidden-Excel zooms, Excel's start
 Get Member carries `accountType` and `timeBalance` on account-type dimensions only (FinPlan Account; FinMax
 BalanceTypes - FinMax's Accounts dimension has neither). They are stored in the atlas (since the fix round: its side
 table `member_real`, columns `account_type`, `time_balance`) and **nothing reads them in this task**: the behaviour
-cards keep the account type and time balance derived from data, exactly as before. FinPlan Account, EPM's value against today's card (counts, one
-GET, read-only):
+cards keep the account type and time balance derived from data, exactly as before. FinPlan Account, EPM's value
+against today's card (counts, one GET, read-only):
 
 | EPM `accountType` / card `account_type` | members |
 | --- | --- |

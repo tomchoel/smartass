@@ -140,6 +140,7 @@ def build_into(target: Path, run: Callable[[sqlite3.Connection], list[dict]],
     target.parent.mkdir(parents=True, exist_ok=True)
     lock = _lock(target)
     if lock is None:
+        _record(target, False, "another atlas build is running", [])
         progress(f"atlas not replaced: another atlas build is running; {target} is unchanged")
         return [{"connection": "-", "error": "atlas not replaced: another atlas build is running"}], False
     new: Path | None = None

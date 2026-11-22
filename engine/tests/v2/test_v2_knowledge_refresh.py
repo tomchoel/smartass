@@ -104,7 +104,7 @@ def test_a_refresh_whose_atlas_was_not_replaced_says_so_and_is_not_ok(tmp_path, 
                           run_testset=lambda: [{"id": "b01", "ok": True, "diffs": []}])
     assert out.build.ok and not out.ok
     report = (home / "knowledge" / "reports" / "2026-10.md").read_text(encoding="utf-8")
-    assert "Atlas: NOT replaced (atlas not replaced: 1 dimension or cube failed)" in report and "rebuilt" not in report
+    assert "Atlas: NOT replaced (1 dimension or cube failed); the refresh used" in report and "rebuilt" not in report
 
 
 def test_a_refresh_without_a_sign_in_says_the_atlas_was_not_replaced(tmp_path, monkeypatch):
@@ -123,7 +123,8 @@ def test_a_refresh_without_a_sign_in_says_the_atlas_was_not_replaced(tmp_path, m
                           run_testset=lambda: [{"id": "b01", "ok": True, "diffs": []}])
     assert not out.ok and out.atlas_not_replaced
     report = (home / "knowledge" / "reports" / "2026-10.md").read_text(encoding="utf-8")
-    assert "Atlas: NOT replaced (" in report and "not signed in to EPM" in report and "rebuilt" not in report
+    assert "Atlas: NOT replaced (not signed in to EPM - run `smartass login`); the refresh used" in report
+    assert "rebuilt" not in report
 
 
 def test_refresh_without_atlas_rebuild_and_first_snapshot(tmp_path, monkeypatch):

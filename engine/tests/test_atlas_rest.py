@@ -480,6 +480,8 @@ def test_a_second_build_while_one_runs_says_so_and_touches_nothing(tmp_path):
         msvcrt.locking(held.fileno(), msvcrt.LK_UNLCK, 1)
     assert not swapped and ran == [] and target.read_bytes() == before
     assert done == [{"connection": "-", "error": "atlas not replaced: another atlas build is running"}]
+    last = atlas_build.last_attempt(target)                 # the refused attempt is recorded too (Task 4b review)
+    assert last["replaced"] is False and last["why"] == "another atlas build is running"
     names = []
     atlas_build.build_into(target, lambda db: names.append(db.execute("PRAGMA database_list").fetchone()[2]) or [
         {"connection": "FinMax", "dimension": "x", "members": 0}], progress=lambda m: None)

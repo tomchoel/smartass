@@ -11,9 +11,13 @@ import pytest
 
 @pytest.fixture
 def below(monkeypatch):
-    """Sentinels under the guarded start points: the COM instance creation DispatchEx calls, and process starts."""
+    """Sentinels under the guarded start points: the COM instance creation DispatchEx calls, process starts, and the
+    SSO watcher's first step (its list of running watchers) and its kill - so a broken guard of ensure_global_watcher
+    could not even reach the code that kills a stale watcher (sso.py)."""
     import pythoncom
     import subprocess
+
+    from smartass.epm import sso
     reached = []
 
     def sentinel(*args, **kwargs):
@@ -21,6 +25,9 @@ def below(monkeypatch):
         raise RuntimeError("reached below the guard")
     monkeypatch.setattr(pythoncom, "CoCreateInstanceEx", sentinel)
     monkeypatch.setattr(subprocess, "Popen", sentinel)
+    monkeypatch.setattr(sso, "global_watcher_pids", sentinel)
+    monkeypatch.setattr(sso, "_heartbeat_age", sentinel)
+    monkeypatch.setattr(sso, "psutil", SimpleNamespace(Process=sentinel, Error=Exception))   # sso's own psutil
     return reached
 
 

@@ -209,7 +209,8 @@ def _report(r: RefreshResult, metrics: list[Metric]) -> str:
     lines = [f"# Knowledge refresh {_ym(r.month)}", "",
              f"Run {dt.datetime.now():%Y-%m-%d %H:%M}. Atlas: "
              + ("not rebuilt (--no-atlas)" if r.atlas is None else
-                f"NOT replaced ({r.atlas_not_replaced}); the refresh used the atlas as it was" if r.atlas_not_replaced
+                f"NOT replaced ({r.atlas_not_replaced.removeprefix('atlas not replaced: ')}); the refresh used the "
+                "atlas as it was" if r.atlas_not_replaced
                 else f"rebuilt, {sum(1 for a in r.atlas if not a.get('error') and not a.get('skipped'))} dimension(s), "
                 f"{sum(1 for a in r.atlas if a.get('error'))} failed"
                 + "".join(f"; {a['connection']}: {a['skipped']}" for a in r.atlas if a.get("skipped"))), ""]

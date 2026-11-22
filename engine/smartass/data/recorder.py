@@ -1,4 +1,4 @@
-"""Record a run's grids (and drills) to a local JSON file and replay them without EPM: the test set's offline
+r"""Record a run's grids (and drills) to a local JSON file and replay them without EPM: the test set's offline
 mode. Files live outside git (%LOCALAPPDATA%\smartass\v2\testset): they hold real financial data. A run where a
 member was left out over Planning REST (FetchResult.dropped) is never stored: its totals are incomplete, and a
 recording keeps facts only - a golden made from it would hold the partial total without the warning."""
