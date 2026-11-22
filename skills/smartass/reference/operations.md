@@ -13,7 +13,8 @@
 - **One Excel: the user's.** The engine has no Excel of its own (since 0.7.0). Every answer is drawn in the user's
   Excel (session workbook, or `target="active"`), each job on a thread of its own, taking turns per Excel. The
   engine starts an Excel only as the user's, visible, on a workbook (no Excel open, or a parallel agent's new
-  workbook), and never closes, kills or restarts it.
+  workbook), and never kills or restarts it. It closes an Excel only when it started that Excel itself for a new
+  workbook that could not be saved and nothing else is open in it.
 - **How an answer reaches Excel.** The answer's sheets are built as an .xlsx without Excel (under
   `%LOCALAPPDATA%\smartass\tmp`, deleted when the answer is in), inserted into the workbook in one call (Excel's
   own insert of a file's sheets: no second workbook is opened) and finished there (tables, formulas, chart labels),
@@ -73,11 +74,12 @@
   through Excel. A pod without a scope, a refused token or a stale atlas stops both engines: the grid is a warning.
   A missing sign-in is answered with a page and a code instead (show both to the user; after the approval call
   again); a PC without `[oauth]` in config.toml gets the set-up text.
-- **Read-only.** Every request to EPM passes one allowlist of read requests (`epm/epmhttp.py`); submit, calculate,
+- **Read-only.** Every request to EPM with the user's sign-in passes one allowlist of read requests
+  (`epm/epmhttp.py`; the doctor's reachability check alone is a plain GET without a token); submit, calculate,
   import and business rules do not exist in the engine.
 - **Smart View.** The engine does not use it. Where it is installed it can still open its own Login in the user's
-  Excel (often at Excel's start); while it is open the engine refuses to work in Excel and the error names that
-  Excel: the user signs in there or closes the Login, then ask again. Nothing clicks it any more.
+  Excel (often at Excel's start); while it is open in any Excel the engine refuses to work in every Excel and the
+  error names that Excel: the user signs in there or closes the Login, then ask again. Nothing clicks it any more.
 - **Parallel sessions** are fine. Each session has its own workbook; writes into one Excel window take turns (a
   lock per Excel), different Excels run in parallel. Long stages send `still working: <stage> (n s)` every 10 s:
   wait, do not call again.
@@ -112,7 +114,7 @@ read.
 | Command | Does |
 |---|---|
 | `smartass doctor` (`--json`, `--bundle`, `--fix`) | Health checks with a fix per problem; `--bundle` zips logs, redacted config and versions for the maintainer; `--fix` removes what an older release left (each file named first) |
-| `smartass atlas status` / `smartass atlas build [--cube X] [--dimension D]` | Atlas age and the last build's outcome; rebuild over Planning REST with the user's sign-in (read-only, no Excel; the member trees in about half a minute, then the behaviour cards from data). It replaces the atlas only when every dimension was built, else says `NOT replaced (<why>)`. Then `gen_atlas_md.py` refreshes `reference\cubes.md` |
+| `smartass atlas status` / `smartass atlas build [--cube X] [--dimension D]` | Atlas age and the last build's outcome; rebuild over Planning REST with the user's sign-in (read-only, no Excel; the member trees in about 25 s, then about two minutes more for the behaviour cards from data). It replaces the atlas only when every dimension was built, else says `NOT replaced (<why>)`. Then `gen_atlas_md.py` refreshes `reference\cubes.md` |
 | `smartass login` (`--status`, `--force`, `--forget`) | EPM sign-in for the bearer route: prints a page and a code (page opens, code on the clipboard), waits for the approval. Needed once, and again after 7 days without use |
 | `smartass setup` | Per-user setup (config, secret, MCP entries, skill link, Startup entries, PATH, atlas copy) |
 | `smartass update` | Install the release from the release folder |
@@ -128,8 +130,8 @@ Every error names one next step. The common ones:
 | `invalid spec: …` / `Extra inputs are not permitted` | The spec breaks the contract (unknown field, a block metric not in its query, budget on a FinMax query …). Fix the named field. |
 | `query q1: Actual covers … but … covers …` | Actual and plan periods do not line up; set `plan_periods` or align `periods`. |
 | Warning `N grid(s) were fetched over Planning REST, the second engine: …` | The data WAS fetched, over REST: same numbers. A cell the user may not read shows as empty there (not #NoAccess). No action needed for the answer. |
-| Warning `…: EPM refused <dimension> member X over Planning REST … left out: its figures are missing from this answer and every total that includes it (…) is INCOMPLETE …` (also a warn caveat) | The member no longer exists there (or the user may not read it): it was left out and the totals that include it show only the rest. Tell the user which totals are incomplete; check the member with fin_lookup and patch the spec, or ask the user to run `smartass atlas build`. Do not quote those totals as complete. |
-| Error/warning `… member X … cannot be left out - check the member or rebuild the atlas` | A POV member or the query's only entity (or another single member) is refused: that grid is not fetched. Find today's member with fin_lookup and patch the spec. |
+| Warning `…: EPM refused <dimension> member X over Planning REST … left out: its figures are missing from this answer and every total that includes it (…) is INCOMPLETE …` (also a warn caveat) | The member no longer exists there (or the user may not read it): it was left out and the totals that include it show only the rest (at most 3 members per request). Tell the user which totals are incomplete; check the member with fin_lookup and patch the spec, or ask the user to run `smartass atlas build`. Do not quote those totals as complete. |
+| Error/warning `… member X … cannot be left out - check the member or rebuild the atlas` | A POV member or the query's only entity (or another single member) is refused: that grid is not fetched. The answer is still drawn without its numbers, and the reply's warning names the member: tell the user which numbers are missing. Find today's member with fin_lookup and patch the spec. |
 | Warning `N grid(s) could not be fetched (the Smart View provider route, then Planning REST): …` | Neither engine could fetch them; those numbers are missing. Retry; if it repeats, `smartass doctor`. |
 | `checks.sheet_equals_model` = `DIFF in n cells` (+ `mismatches`) | Excel calculated something else than the model: report it; do not quote those cells. |
 | `Smart View's Login is open in the Excel showing … ; smartass does not touch an Excel while it is …` | Smart View's own EPM Login is open in the user's Excel (often at Excel's start). Ask the user to sign in there or close it, then call again. If it shows at every Excel start, the error names the Smart View option to untick. |

@@ -14,11 +14,14 @@ v1 (the `sv_*` gate/recipe pipeline, retired 2026-11-04) is described in
 - **One model, two outputs.** Every output cell is an expression tree. `evaluate(frame)` gives the number;
   `to_excel` gives the formula (SUMIFS / XLOOKUP on labels in table `Data_Q<n>`). The sheet is read back once and
   must equal the model (`checks.sheet_equals_model`).
-- **Read-only towards EPM.** Every request to EPM goes through one HTTPS boundary, `epm/epmhttp.py` `EpmSession`,
-  whose allowlist admits reads only (Runtime, below). No submit, calculate, import, job or business-rule request
-  exists in the engine.
-- **Your Excel is never closed or saved.** The engine has no Excel of its own (since 0.7.0). It starts an Excel only
-  as yours, visible, on a workbook (Runtime), and saves only its own answer files.
+- **Read-only towards EPM.** Every request to EPM that carries your sign-in goes through one HTTPS boundary,
+  `epm/epmhttp.py` `EpmSession`, whose allowlist admits reads only (Runtime, below); the doctor's `epm` check alone
+  is a plain GET of `epm.base` without a token, to see the server answers. No submit, calculate, import, job or
+  business-rule request exists in the engine.
+- **Your Excel is never saved, and closed in one case only.** The engine has no Excel of its own (since 0.7.0). It
+  starts an Excel only as yours, visible, on a workbook (Runtime), and saves only its own answer files. It quits an
+  Excel only when it started that Excel itself for a new workbook that could not be saved and nothing else is open
+  in it (`target._discard_new`).
 
 ## Tools (9, `smartass/server.py`)
 
@@ -50,9 +53,10 @@ Every other Excel job (read, write, pivots, Power Query, charts) is Excel MCP. E
    HTTP 400 names it) is left out of the request when it is on an axis of several (at most 3, every grid of the
    request): it gets no fact, the path of a missing cell, and one warning and one warn caveat per member (the
    Answer's Caveats, the Sources sheet's Known limits) say its figures are missing and every total with it is
-   INCOMPLETE. A POV member or an axis's only member fails the request with an error that names it, the grid and
-   `smartass atlas build`. A grid neither engine could fetch is a warning (`Prepared.failed`); no Excel is asked
-   for a grid. `routes` counts `rest`, and one warning says how many grids came over REST and that a cell you may
+   INCOMPLETE. A POV member, an axis's only member or a fourth refused member fails that request with an error that
+   names it, the grid and `smartass atlas build`: the grid is not fetched, and like any grid neither engine could
+   fetch it is a warning (`Prepared.failed`) and the answer is drawn without its numbers. No Excel is asked for a
+   grid. `routes` counts `rest`, and one warning says how many grids came over REST and that a cell you may
    not read reads as empty there (Oracle exports only cells with read-write access). Live gate:
    `docs/audit/2026-11-21-rest-vs-provider.md`.
 3. **Compute** (`model/analyze.py`): facts → `model/frame.py` → block builders (`model/blocks/*`) → expression
@@ -109,29 +113,32 @@ Every other Excel job (read, write, pivots, Power Query, charts) is Excel MCP. E
    of the labelled seed when there is one (found also when Excel keeps the label in `docMetadata/LabelInfo.xml`, as
    it does on this tenant); else, with a stored base or without the template, a "Sources" workbook built without
    Excel (`render/xlsx.build_sources`: the label as document properties, the TN theme), kept as the seed only when
-   it was built in the stored base (written to a temp file, then replaced: two cold jobs can write it at once); else
-   your Excel launched on the TN template and saved as (`_spawn_excel`, `_save_new`), whose look stores the base.
+   it was built in the stored base (written to a temp file, then replaced: two cold jobs can write it at once; a
+   stored base whose column width is not a standard one is not used, so with such a base every cold start builds a
+   plain file and keeps none - an open item); else your Excel launched on the TN template and saved as
+   (`_spawn_excel`, `_save_new`), whose look stores the base.
    A seed or a built file is opened by launching Excel on it (`_open_path`); none of this needs an Excel of the
    engine's own.
    The built workbook has no TN cell styles until something needs them (`styling.ensure_styles` merges them
    from the template: `xl_tidy`, `apply_report`). Proved item by item against one made today's way by
-   `scripts/check_insert.py --parts newbook` (in an Excel of the script's own, 20.11.2026).
+   `scripts/check_insert.py --parts newbook` (20.11.2026, then in the engine's hidden Excel of 0.6.0; since 0.7.0 the
+   script starts a hidden Excel of its own).
    Measured (docs/audit/2026-11-20-inproc-bench.md, live): 1.9-2.7 s in the Excel job for an answer without a
    lines sheet as the workbook grows to 61 sheets, 3.9-4.3 s with a lines sheet, a follow-up 1.6-1.9 s, at 5
    batches per answer (4 since the review fixes). What is left is mostly Excel's own work: the insert (about 0.5 s)
    and the save of our OneDrive file. The first answer of a new workbook, built as its file (phase 3c): 2.0-3.4 s in
-   the Excel job in a hidden Excel on the OneDrive folder, against 8.0-11.6 s made from the template there (the
-   Open itself 1.0-1.8 s; 20.11.2026); 10.6-11.3 s made from the template in the owner's Excel (0.4.0 run log).
-   Measured in the owner's Excel built as its file (a fresh Excel, 20.11.2026 22:16, before the save after the
+   the Excel job in a script's own hidden Excel on the OneDrive folder, against 8.0-11.6 s made from the template
+   there (the Open itself 1.0-1.8 s; 20.11.2026); 10.6-11.3 s made from the template in the owner's Excel (0.4.0 run
+   log). Measured in the owner's Excel built as its file (a fresh Excel, 20.11.2026 22:16, before the save after the
    reply): the first answer of a new workbook 5.3-6.1 s against 7.5 s made from the template by 0.4.0 in the same
    Excel (goal 5 s or under): open target 2.1-2.6 s, of which "new workbook" 2.0 s with no Excel in it; `draw.open`
    1.05-1.08 s (Excel opening the file: Excel's own); look 0.83-1.14 s (0.03 s in an existing workbook);
    everything else 0.9 s together. Since then (phase 3c Task 1b; the live figure after it is owed) the session's
    parents are read from one snapshot of the process table instead of one per ancestor: 1.5 s of "new workbook",
    once per server process, measured 1.75-2.15 s before and 0.20-0.22 s after in a plain script. And a server process
-   that meets an Excel holding its build of the add-in uses it as it is instead of registering it again: in a hidden
-   Excel the look of a new server's first answer went from 0.45-0.49 s to 0.04-0.09 s. That this was most of the live
-   look is inferred, not measured live. Ledger and figures: docs/audit/2026-11-20-first-answer.md.
+   that meets an Excel holding its build of the add-in uses it as it is instead of registering it again: in a script's
+   own hidden Excel the look of a new server's first answer went from 0.45-0.49 s to 0.04-0.09 s. That this was most
+   of the live look is inferred, not measured live. Ledger and figures: docs/audit/2026-11-20-first-answer.md.
 5. **Reply**: `q`, `workbook`, `sheets`, `key_values` (the only numbers the agent may quote), `material`,
    `findings`, `checks`, `layout` (layout check findings with fixes), `charts`, `warnings`, `caveats`, `routes`,
    `closed`, `saved_user_workbook: false`, and for depth standard or deep `critic_brief` (`model/critic.py`). The run is stored in answer memory
@@ -205,22 +212,24 @@ never stops the rest.
   The same token opens the documented Planning REST API: `exportdataslice` is the grids' second engine and Get
   Member builds the atlas (below). The drill link (GetDrillThroughReports) has no second route: Planning REST has
   no drill-report request, so a link the provider route cannot fetch is an error.
-- **One HTTPS boundary** (`epm/epmhttp.py` `EpmSession`, one per pod and route). Every request to EPM goes
-  through it, and it refuses before a token is asked for anything that is not exactly on its allowlist (`ALLOWED`):
-  the method, the whole path (no pattern), the query names and values that path takes, the header names it takes,
-  and for a POST the body. The bearer goes only over https to the session's own pod, and only when `[oauth.scopes]`
-  has a scope for it; the URL is built from the pod's origin, never from a host a caller wrote; a redirect is never
-  followed; a 401 takes one new token and the request goes once more (the grids, Planning REST and the atlas's
-  reads: any gate answer, 3xx, 401 or 403); an answer is read up to 64 MB; a token, a session key, a cookie or a URL
-  query is never in a log line, an error text or a reply (`drillcore.redact` on every URL shown; `logsetup.redact`
-  on every log line, reply text and run-log line). The rules, one by one:
+- **One HTTPS boundary** (`epm/epmhttp.py` `EpmSession`, one per pod and route). Every request to EPM with the
+  token goes through it (the doctor's `epm` check alone is a plain GET of `epm.base`, without a token or a cookie,
+  to see the server answers), and it refuses before a token is asked for anything that is not exactly on its
+  allowlist (`ALLOWED`): the method, the whole path (no pattern), the query names and values that path takes, the header
+  names it takes, and for a POST the body. The bearer goes only over https to the session's own pod, and only when
+  `[oauth.scopes]` has a scope for it; the URL is built from the pod's origin, never from a host a caller wrote; a
+  redirect is never followed; a 401 takes one new token and the request goes once more (the grids, Planning REST and the
+  atlas's reads: a gate answer, HTTP 301, 302, 303, 307, 401 or 403); an answer is read up to 64 MB; a token, a session
+  key, a cookie or a URL query is never in a log line, an error text or a reply (`drillcore.redact` on every URL shown;
+  `logsetup.redact` on every log line, reply text and run-log line). The rules, one by one:
   - `POST /HyperionPlanning/SmartView`: the grids' provider route. No query, `Content-Type: text/xml` only, a body
     of at most 16 MB that `svxml.check_read_only` admits (the provider XML's read requests only).
   - The drill's own four (`drill_token`): `GET /aif/ui/model/applications/servicetype` (no query);
     `GET .../FdmeeMain.jsp` with `FORMAT=SUI`, `module=aif.drilldown` and the link's own parameters;
     `GET /aif/ui/model/view` with `page=DRILL_THROUGH`; `POST /aif/ui/model/drilldown/getData` with `limit` and
-    `offset`, a JSON body of exactly the drill query's keys and no statement word that writes. Only these take the
-    drill's headers.
+    `offset`, a JSON object with no keys but the drill query's (`QUERY`, `PARAMS`, `PARAMSTYPE`), whose `QUERY` is
+    one read-only SELECT (or WITH ... SELECT: no `;`, no statement word that writes or administers). Only these take
+    the drill's headers.
   - `POST /HyperionPlanning/rest/v3/applications/{app}/plantypes/{cube}/exportdataslice` for FinMax/FinMax,
     FinMax/FinLite and FinPlan/FinPlan: the second grid engine. No query, `Content-Type: application/json` only, a
     body of exactly Oracle's grid keys, members by name (no member function).
@@ -234,13 +243,15 @@ never stops the rest.
 - **Two grid engines** (Pipeline, step 2): the provider route first; a grid it could not fetch goes once over
   Planning REST with the same token, but not for an error REST would meet too (`svhttp.NoFallback`). A member EPM
   refuses is left out of a grid when its axis has others, with one warning and one caveat that every total with it
-  is INCOMPLETE; a refused POV member or only member is an error. No Excel is asked for a grid.
+  is INCOMPLETE (at most 3 per request); a refused POV member or only member stops that grid: it is not fetched, the
+  reply warns naming the member, and the answer is drawn without its numbers. No Excel is asked for a grid.
 - **Atlas** (`atlas.db`, `knowledge/atlas.py`): `smartass atlas build` (`ops/atlas_build.py`) reads every
-  dimension tree with Get Member (`epm/members.py`; live about 10 s of Get Member for both pods, 20-25 s for the
-  build in all: docs/audit/2026-11-22-atlas-rest.md) into a NEW file, a copy of the atlas, and swaps it in (SQLite's
-  backup, one transaction) only when every dimension was built (a full build then derives the behaviour cards from
-  data, as before); otherwise it says "atlas not replaced: <why>" and the
-  atlas is unchanged. One build at a time (a lock next to the atlas); every attempt is recorded next to it
+  dimension tree with Get Member (`epm/members.py`; live 9-12 s of Get Member for both pods and 22-24 s for the
+  build in all over four gate runs, the last 8.8 s and 23.6 s: docs/audit/2026-11-22-atlas-rest.md) into a NEW file,
+  a copy of the atlas, and swaps it in (SQLite's backup, one transaction) only when every dimension was built (a full
+  build then derives the behaviour cards from data, as before: about two minutes more, the CLI's figure); otherwise it
+  says "atlas not replaced: <why>" and the atlas is unchanged. One build at a time (a lock next to the atlas); every
+  attempt that took the lock is recorded next to it (one refused by the lock is not: the record is the running build's)
   (`atlas.db.last.json`), and `smartass atlas status` shows it as `last_build`. A dimension EPM lists that this
   release has no rule for is skipped, its rows kept, and said ("dimension X is new in EPM; this release cannot read
   it - update smartass"). The rows are the ones the old Smart View zoom gave: the label is the Default alias, else the
@@ -254,30 +265,34 @@ never stops the rest.
 - **Your Excel** (`xl/userjobs.py` `UserJobs`): every job in it (an answer, a follow-up, a drill's sheets, the
   `xl_*` tools) runs on an STA thread of its own, so jobs in different Excels run side by side; work in one Excel
   takes turns (a lock file per Excel process). A job has a deadline (`SV_USER_CALL_TIMEOUT`, 600 s); a job given
-  up on is never killed - its next Excel call stops it - and your Excel is never closed. The objects a job made are
+  up on is never killed - its next Excel call stops it - and no job closes your Excel. The objects a job made are
   released on its own thread before its turns are freed; a release not done 10 s after the answer gives the job up.
   A job's result is plain data; every failure is a readable text. Excel is reached through its window, never
   created by COM.
 - **Smart View's Login in your Excel** (`xl/dialogs.py`): smartass uses no Smart View, but Smart View stays
   installed and can open its Login (at every Excel start when its start-up update check is on: doctor
   `smartview_startup`). Excel's COM blocks while that Login is open, so smartass refuses at once to work while one is
-  open in any visible Excel, and names that Excel by its window title. After it launched an Excel it watches 12 s
-  for a Login before its first call; where Smart View's start-up check is on (read from the registry, no COM) until
-  25 s after the launch, as that Login comes 19-22 s after Excel starts. Nothing clicks, closes or waits for a sign-in.
+  open in any visible Excel (also for a job whose workbook is in another Excel), and names that Excel by its window
+  title. After it launched an Excel it watches that Excel for a Login before its first call: 12 s from when the
+  workbook showed; where Smart View's start-up check is on (`HKCU\Software\Oracle\SmartView\extensions`
+  `CheckOnStartup`, read from the registry, no COM; a policy setting reads as not set) until 25 s after the launch
+  when that is later, as that Login comes 19-22 s after Excel starts. A Login later than that (a slow start) is not
+  caught: that job waits until its deadline. Nothing clicks, closes or waits for a sign-in.
 - **What can start an Excel:** only `xl/target._launch_excel` (`EXCEL.EXE /x <file>`: your Excel, visible, on a
   workbook), called by `_open_path` (a target file, or a first workbook's file when no Excel runs) and
   `_spawn_excel` (the TN template: a parallel agent's new workbook, or a first workbook with no Excel, no seed and
-  no stored base). The only processes smartass ends are an older release's: at server start an Excel that release
-  started hidden, when its `pids.json` proves it (pid, creation time, `-Embedding`; then the file goes), and in
-  `smartass setup` that release's sign-in watcher of this install. `tests/test_neutral_imports.py` pins the start
-  sites; `tests/conftest.py` and `tests/test_suite_guards.py` pin the kills.
+  no stored base). What smartass ends: an Excel it launched itself for a new workbook that could not be saved, when
+  nothing else is open in it (`_discard_new` quits it), and an older release's processes: at server start an Excel
+  that release started hidden, when its `pids.json` proves it (pid, creation time, `-Embedding`; then the file
+  goes), and in `smartass setup` that release's sign-in watcher of this install. `tests/test_neutral_imports.py` pins
+  the start sites; `tests/conftest.py` and `tests/test_suite_guards.py` pin the kills.
 
 ## Knowledge layer (`knowledge/`, sub-spec 2 §1–§4, §8)
 
 - **Source, in git:** `knowledge/semantic/metrics/<id>.toml` (name, aliases, description, unit, sign, balance,
   aggregation, materiality, members per cube, `differs`, status) and `facts/<id>.toml` (text, scope members per cube
   and/or metrics, `valid_from`/`valid_to`, severity info / warn / block, source, status). `semantic.py` validates
-  them (pydantic, strict). Since 10.11 (`docs/specs/2026-11-10-knowledge-layer-design.md`, phase A) `knowledge/semantic` is the ONLY source: also `rules/` (scenarios, materiality, P&L chain, signs, cube choice, group companies; one rule per data kind), `entities/` (business areas: members per cube, FinPlan division total `finplan_total`, aliases incl. generic ones, successors), `kpis/` (ratios of two metrics), `vocab/` (vague words with options, grains, currency), `notes/` (meaning and booking pattern per member, 2 366) and account bundles as plain metrics. Facts carry `inherit` (self / down / up to the nearest metric or entity member / both); the build expands them over the atlas (`expand.py`) and a caveat says `via` the member it came from. catalog.toml, capabilities.toml, the three business maps and seed.py are gone. Behaviour cards (phase B, 10.11): Smart View gives no member properties on this provider, so `smartass atlas cards` (also run after a full `atlas build`, ~1 min, read-only grids) derives per (member, parent) the operator (+ / ~ / -, from parent vs sum of children over two slices; #NoAccess = unknown), the time balance (flow / balance_last / average) and the account type into atlas.db `card`; `knowledge/semantic/cards/*.toml` holds manual overrides that win per field (provenance derived@ / manual@). `weight(member, cube, parent)` reads the merged card, `~` children are neither counted, shown nor ranked; fin_lookup member hits carry the compact card and touched level/average accounts get one time-balance caveat. New cards rebuild knowledge.db.
+  them (pydantic, strict). Since 10.11 (`docs/specs/2026-11-10-knowledge-layer-design.md`, phase A) `knowledge/semantic` is the ONLY source: also `rules/` (scenarios, materiality, P&L chain, signs, cube choice, group companies; one rule per data kind), `entities/` (business areas: members per cube, FinPlan division total `finplan_total`, aliases incl. generic ones, successors), `kpis/` (ratios of two metrics), `vocab/` (vague words with options, grains, currency), `notes/` (meaning and booking pattern per member, 2 366) and account bundles as plain metrics. Facts carry `inherit` (self / down / up to the nearest metric or entity member / both); the build expands them over the atlas (`expand.py`) and a caveat says `via` the member it came from. catalog.toml, capabilities.toml, the three business maps and seed.py are gone. Behaviour cards (phase B, 10.11): Smart View gives no member properties on this provider, so `smartass atlas cards` (also run after a full `atlas build`, about 2 minutes, read-only grids) derives per (member, parent) the operator (+ / ~ / -, from parent vs sum of children over two slices; #NoAccess = unknown), the time balance (flow / balance_last / average) and the account type into atlas.db `card`; `knowledge/semantic/cards/*.toml` holds manual overrides that win per field (provenance derived@ / manual@). `weight(member, cube, parent)` reads the merged card, `~` children are neither counted, shown nor ranked; fin_lookup member hits carry the compact card and touched level/average accounts get one time-balance caveat. New cards rebuild knowledge.db.
 - **Build:** `build.py` compiles the files with the atlas into `%LOCALAPPDATA%\smartass\knowledge.db` (metrics,
   members, aliases + FTS5, facts, fact scopes, member labels, meta), written to `.tmp` and swapped in. Errors (a
   metric member not in the atlas, an alias on two metrics) keep the old db; warnings (a historical fact member,

@@ -37,8 +37,8 @@ def main(argv: list[str] | None = None) -> int:
     at_sub = at.add_subparsers(dest="atlas_cmd", required=True)
     at_sub.add_parser("status", help="what the atlas holds and whether it is stale")
     b = at_sub.add_parser("build", help="rebuild over the EPM sign-in (Planning REST, read-only, no Excel: the member "
-                          "trees in about half a minute, then the behaviour cards); replaces the atlas only when "
-                          "every dimension was built")
+                          "trees in about 25 s, then the behaviour cards, about 2 minutes); replaces the atlas only "
+                          "when every dimension was built")
     b.add_argument("--cube", action="append", choices=["FinMax", "FinLite", "FinPlan"],
                    help="only this cube (repeatable; default all three)")
     b.add_argument("--dimension", action="append", help="only this dimension (repeatable; no purge of the cube)")

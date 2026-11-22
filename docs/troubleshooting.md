@@ -100,8 +100,8 @@ asked for a grid. The reply's `routes` counts the grids per engine (`http`, `res
 | Warning or error in the reply | Meaning | What to do |
 |---|---|---|
 | "N grid(s) were fetched over Planning REST, the second engine: the Smart View provider route could not fetch them (...)" | The numbers are complete and the same as the provider route's (live gate: docs\audit\2026-11-21-rest-vs-provider.md). Over REST a cell you have no access to cannot be told apart from an empty one: it reads as missing, not #NoAccess. | Nothing, unless you expected #NoAccess cells. |
-| "FinPlan: EPM refused Entity member X over Planning REST ... so it was left out: its figures are missing from this answer and every total that includes it (metrics) is INCOMPLETE - check the member or rebuild the atlas (`smartass atlas build`)" | EPM no longer has that member there (renamed or removed since the atlas or the question), or you may not read it. The rest of the grid is fetched without it, so a total that includes it shows only the others. The same text is under Caveats on the Answer, and in Known limits on the Sources sheet after the question and the day ("Q3 (2026-11-22): ..."), until that question is answered again without it. | Check the member with fin_lookup; rebuild the atlas; ask again with today's member. |
-| "... could not fetch it either (query q): Planning REST refused the ... grid: ... member X ... cannot be left out - check the member or rebuild the atlas" | The refused member is a POV member or the only member on its axis (often the question's one entity): leaving it out would change what every number means, so the grid is not fetched. | As above: correct the member (fin_lookup) and ask again. |
+| "FinPlan: EPM refused Entity member X over Planning REST ... so it was left out: its figures are missing from this answer and every total that includes it (metrics) is INCOMPLETE - check the member or rebuild the atlas (`smartass atlas build`)" | EPM no longer has that member there (renamed or removed since the atlas or the question), or you may not read it. The rest of the grid is fetched without it (at most 3 members are left out of one request), so a total that includes it shows only the others. The same text is under Caveats on the Answer, and in Known limits on the Sources sheet after the question and the day ("Q3 (2026-11-22): ..."), until that question is answered again without it. | Check the member with fin_lookup; rebuild the atlas; ask again with today's member. |
+| "... could not fetch it either (query q): Planning REST refused the ... grid: ... member X ... cannot be left out - check the member or rebuild the atlas" | The refused member is a POV member or the only member on its axis (often the question's one entity): leaving it out would change what every number means, so that grid is not fetched. The answer is still drawn, without that grid's numbers, and this warning names the member. The same when more than 3 members of one request are refused ("Planning REST refused more than 3 members of the ... grid"). | As above: correct the member (fin_lookup) and ask again. |
 | "N grid(s) could not be fetched (the Smart View provider route, then Planning REST): ..." | Neither engine could fetch them; the reasons follow. Those numbers are missing from the answer. | Ask again in a minute; if it repeats, `smartass doctor`. |
 | A drill: "the drill link of ... could not be fetched over the Smart View provider route (...); Planning REST has no drill-report request, so there is no other route. Next step: ..." | Only the provider route can give a cell's drill link. | The reply's next step, by cause: the scope to add, `smartass atlas build`, `smartass login --force` (a token EPM refused), `smartass login --status` (no access token), the members by their codes (a grid EPM refused for an alias clash), else try again in a minute. |
 | "... EPM refused the access token twice (HTTP 401/403)" | EPM's gate refused a token this PC still holds as valid, also after one new token. Usually a stale sign-in; it can also be a missing EPM role or a missing OAuth scope for that pod. | Run `smartass login --force` (plain `smartass login` skips a pod that still looks signed in), then ask again. If it repeats, ask the EPM administrator to check your role and the OAuth client's scope for that pod. |
@@ -113,13 +113,14 @@ asked for a grid. The reply's `routes` counts the grids per engine (`http`, `res
 - **Fix:** FAIL: Re-run installer\install.ps1 (copies the monthly atlas), or run `smartass atlas build`.
   WARN: Re-run the installer after the monthly release, or run `smartass atlas build`.
 
-`smartass atlas build` (since 0.7.0) reads every dimension over Planning REST with your sign-in: read-only, no
-Excel, the member trees of both pods in about half a minute (docs\audit\2026-11-22-atlas-rest.md); a full build then
-derives the behaviour cards from data, as before. It builds a new file and replaces the atlas only when every
-dimension was built. `smartass atlas status` shows the last attempt as `last_build`.
+`smartass atlas build` (since 0.7.0) reads every dimension over Planning REST with your sign-in: read-only, no Excel,
+the member trees of both pods in about 25 s (docs\audit\2026-11-22-atlas-rest.md); a full build then derives the
+behaviour cards from data, as before: about two minutes more. It builds a new file and replaces the atlas only when
+every dimension was built. `smartass atlas status` shows the last attempt as `last_build`.
 
 - **Symptom:** the build's last line is `atlas: NOT replaced (<why>); ...` and it exits 1. `smartass knowledge
-  refresh` says "Atlas: NOT replaced (...); the refresh used the atlas as it was".
+  refresh` prints "atlas not replaced: <why> - this refresh used the atlas as it was", and its report file says
+  "Atlas: NOT replaced (<why>); the refresh used the atlas as it was".
 - **Cause and fix, by the reason given:**
   - "not signed in to EPM - run `smartass login`": run it, then build again.
   - "1 dimension or cube failed" (or more): the line above it names each failed dimension and EPM's reason. Build
@@ -167,7 +168,7 @@ dimension was built. `smartass atlas status` shows the last attempt as `last_bui
 
 - **Symptom:** `WARN  leftovers  an older smartass crashed with Smart View's options changed; the originals recorded in
   ...\smartview_options_original.json: ...` and/or `N VBA bridge add-in file(s) of an older release in ... (unused)`.
-- **Cause:** a release before 0.7.0 ran its own hidden Excel with Smart View, changed three of Smart View's global
+- **Cause:** a release before 0.7.0 ran a hidden Excel of its own with Smart View, changed three of Smart View's global
   options while it ran, and put them back when it stopped. The file is left when such a run crashed: nothing can put
   those options back now. The `svbridge_*.xlam` files are add-ins it built; nothing uses them now.
 - **Fix:** Set the recorded values back by hand in Excel: Smart View ribbon > Options (close the other Excels
@@ -199,16 +200,13 @@ are. If one of these symptoms shows up, the cause below is already known; no new
 
 | Symptom | Known cause | What to do |
 |---|---|---|
-| A build in a newly started Excel window is slow in `open target.new workbook` | A cold Excel start for a new interactive Excel (a parallel agent, or no Excel open), and the 12 s smartass watches a new Excel for Smart View's Login before its first call (until 25 s after the start where Smart View's start-up check is on). | None; the next build in that Excel is fast. |
+| A build in a newly started Excel window is slow in `open target.new workbook` | A cold Excel start for a new interactive Excel (a parallel agent, or no Excel open), and the 12 s from when the workbook shows that smartass watches a new Excel for Smart View's Login before its first call (until 25 s after Excel's start where Smart View's start-up check is on). | None; the next build in that Excel is fast. |
+| An answer in an Excel smartass has just started waits 10 minutes and fails, with Smart View's Login open there | That Login opened later than the watch (25 s after Excel's start, on a slow PC), after smartass's first call into that Excel. | Sign in in the Login or close it, then ask again. |
+| Every first workbook made with no Excel open has default column widths and fonts, not the TN template's, and none is kept for the next time | The stored look of a new workbook has a column width that is not a standard one, so it is not used; and as a look is stored, smartass does not make that workbook from the template, which would store a new one. | An open item: tell the maintainer. The answers in it are right. |
 | A new analysis workbook has no TN cell styles (`TN Heltall`, ...) in its style gallery | Since phase 3c the first answer's built file is the workbook; the styles are installed when something needs them. | Run `xl_tidy` on a sheet (it merges them from the TN template), or ignore: the answer's own cells carry their formats. |
 | An empty (0-byte) analysis file, or one with an answer's sheets but no formulas, tables, Sources rows or stored spec, in the analyser folder | The server was killed (or Excel died) while the first answer of a new workbook was made: the name is reserved as an empty file, then the built file is written and Excel opens it; only the job's clean-up deletes it, and the session points at it only after the job's save. | Close it in Excel without saving if it is open, and delete it; ask the question again. |
 | A new analysis file that a failed answer (or a probe) deleted is back in the analyser folder minutes later, online-only | OneDrive restores a file Excel had just saved to the cloud when the local delete races that upload (seen with probe files Excel saved and closed, 20.11.2026). | Delete it again. |
 | Progress notes (`still working: …`) keep arriving after a call to your Excel timed out | The abandoned job's COM call is still hung; its ticker runs until that call returns. The client drops notes for a finished request. | Harmless. It stops when Excel answers or closes. |
-| Matrix: `S9.lookup` is LIMIT | A fresh-profile lookup needs a real signed-in Excel; the COM Excel inherits the simulated environment. | Verify by hand on a new machine (colleague rollout). |
-| Matrix: `S10.5.textfixes` is LIMIT | The user override of a shipped text fix is verified in-process; no current drill line hits a shipped key. | None. |
-| Matrix: `S10.6.pack` is LIMIT | The `produktregnskap` pack has no runtime consumer yet; only its wiring is checked. | Roadmap: give it a consumer or remove it. |
-| Matrix: `S10.8.coldexcel` is LIMIT | A cold start needs no Excel running, and the owner's Excel is open during runs. | Run it with all Excels closed if needed. |
-| Matrix: `S5.drill.report` FAILs with "needs S#.build" under `--only drill` | It builds on S2.build's workbook from the same run. | Include `S2.build` in `--only`, or run the full matrix. |
 
 ## An Excel step behaves differently since 2026-11-19 (the fast COM wrapper)
 
@@ -219,7 +217,7 @@ are. If one of these symptoms shows up, the cause below is already known; no new
   x1.7 faster Excel jobs).
 - **Check:** set the environment variable `SV_FASTCOM=0` for the smartass server, restart it and repeat the step: the
   standard pywin32 wrapper is used. If the problem goes away, report the step; `scripts\check_fastcom.py` compares
-  both wrappers idiom by idiom in a hidden Excel of its own.
+  both wrappers idiom by idiom in a script's own hidden Excel.
 
 ## The reply says the save after the last answer failed (since phase 3c)
 

@@ -38,14 +38,15 @@ Problems: [docs\troubleshooting.md](docs/troubleshooting.md).
 ## Data safety
 
 - **Read-only against EPM.** The engine only retrieves data; it never submits data to the cubes.
-- **Your own login.** Every user signs in to EPM once with their own account (`smartass login`, approved with
-  Telenor SSO in their browser) and sees only what they are allowed to see. Every request to EPM passes one
+- **Your own login.** Every user signs in to EPM once with their own account (`smartass login`, approved with Telenor
+  SSO in their browser) and sees only what they are allowed to see. Every request to EPM with your sign-in passes one
   allowlist of read requests.
 - **Nothing leaves the PC** except the calls to EPM themselves. The HTTP API listens on `127.0.0.1` only and
   needs a per-user secret (DPAPI-protected).
-- **Your own workbooks are never saved** by the engine. Changes made in a workbook you opened are left unsaved
-  for you to review (`xl_snapshot` before an edit, `xl_revert` undoes it). Only the engine's own answer workbooks
-  are saved, in your `analyser` folder (`paths.analyser`). The engine never closes or restarts your Excel.
+- **Your own workbooks are never saved** by the engine. Changes made in a workbook you opened are left unsaved for you
+  to review (`xl_snapshot` before an edit, `xl_revert` undoes it). Only the engine's own answer workbooks are saved, in
+  your `analyser` folder (`paths.analyser`). The engine never restarts your Excel, and closes one only when it started
+  that Excel itself for a new workbook that could not be saved.
 - **The Produktregnskapet archive is protected:** answers are never written there.
 - **No data, databases or tokens in git.** The pre-commit hook and CI enforce this (`scripts\check_staged.py`);
   logs and `smartass doctor --bundle` redact tokens and secrets.

@@ -12,7 +12,9 @@ value means "not configured".
    (what the engine reports, and what makes running servers reload) and the same version in `engine\pyproject.toml`.
 2. Add an entry to `CHANGELOG.md`.
 3. Run `uv lock` and the tests: `cd engine; uv lock; uv run pytest -q; uv run ruff check .`
-4. Run the live checks in `engine\tests\live\README.md` on this PC.
+4. Run the test set against EPM on this PC (`uv run python -m smartass.testset run`, golden numbers outside git) and,
+   when Excel code changed, `scripts\check_inproc.py` and `scripts\check_insert.py` (each starts an Excel of its
+   own).
 5. Commit and push; CI must be green.
 6. Publish: `scripts\publish_release.ps1 -Folder "<release folder>" [-WithAtlas]`.
    It refuses a dirty working tree, an existing version, or an engine that reports a different version than
