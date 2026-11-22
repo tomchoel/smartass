@@ -878,7 +878,7 @@ def test_an_exportdataslice_grid_and_a_dimension_list_are_sent(make):
     ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/jobs"),
     ("GET", "/HyperionPlanning/rest/v3/applications"),
     ("GET", "/HyperionPlanning/rest/v3/applications/FinMax"),
-    ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/dimensions/Accounts/members/Accounts"),  # not a tree read
+    ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/dimensions/Accounts/members/ac.A"),      # not a tree read
     ("POST", "/HyperionPlanning/rest/v3/applications/Vision/plantypes/Plan1/exportdataslice"),     # not configured
     ("POST", "/HyperionPlanning/rest/v3/applications/FinMax/plantypes/FinPlan/exportdataslice"),   # not a pair
     ("POST", "/HyperionPlanning/rest/v3/applications/FinPlan/plantypes/FinMax/exportdataslice"),
@@ -939,8 +939,14 @@ TREE = "/HyperionPlanning/rest/v3/applications/FinMax/dimensions/TimePeriods/mem
 def test_a_member_tree_is_a_dimension_read_from_its_top_member_and_nothing_else():
     """Oracle's "Get Member" (GET .../applications/{app}/dimensions/{dim}/members/{member}: the member and, by
     default, its whole visible subtree; it creates nothing) - only for the (application, dimension) pairs of
-    MEMBER_TREES, from the dimension's top member, as whole paths, with no query and no header."""
-    assert epmhttp.MEMBER_TREES == (("FinMax", "TimePeriods"), ("FinPlan", "Period"))
+    MEMBER_TREES, from the dimension's top member, as whole paths, with no query and no header. The pairs are the
+    dimensions the pods' plan-type lists named on 2026-11-21 (FinMax 14, FinPlan 8; FinLite's 10 are FinMax's)."""
+    assert epmhttp.MEMBER_TREES == (
+        *(("FinMax", d) for d in ("Accounts", "BalanceTypes", "Counterparts", "Currencies", "Entities", "Functions",
+                                  "GLSources", "LegalEntities", "Products", "Projects", "Reserves", "Scenarios",
+                                  "Systems", "TimePeriods")),
+        *(("FinPlan", d) for d in ("Account", "BalanceTypes", "Entity", "Period", "Products", "Scenario", "Version",
+                                   "Years")))
     assert epmhttp.member_tree("FinMax", "TimePeriods") == TREE
     assert {app for app, _ in epmhttp.MEMBER_TREES} <= {app for app, _ in epmhttp.REST_CUBES}
 
@@ -950,15 +956,18 @@ def test_a_member_tree_is_sent(make):
     for app, dim in epmhttp.MEMBER_TREES:
         assert s.request("GET", epmhttp.member_tree(app, dim)).status == 201
     assert [(r.get_method(), r.full_url, r.data) for r in op.sent] == [
-        ("GET", POD + TREE, None),
-        ("GET", POD + "/HyperionPlanning/rest/v3/applications/FinPlan/dimensions/Period/members/Period", None)]
+        ("GET", POD + epmhttp.member_tree(app, dim), None) for app, dim in epmhttp.MEMBER_TREES]
+    assert op.sent[13].full_url == POD + TREE
+    assert op.sent[17].full_url == POD + "/HyperionPlanning/rest/v3/applications/FinPlan/dimensions/Period/members/Period"
 
 
 @pytest.mark.parametrize("method, url", [
     ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/dimensions/TimePeriods/members/Jan"),   # not the top
-    ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/dimensions/Accounts/members/Accounts"),  # not on the list
+    ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/dimensions/Account/members/Account"),    # not on the list
     ("GET", "/HyperionPlanning/rest/v3/applications/FinPlan/dimensions/TimePeriods/members/TimePeriods"),
     ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/dimensions/Period/members/Period"),
+    ("GET", "/HyperionPlanning/rest/v3/applications/FinLite/dimensions/Accounts/members/Accounts"),  # a plan type
+    ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/dimensions/Accounts/members/Entities"),   # a cross pair
     ("GET", "/HyperionPlanning/rest/v3/applications/Vision/dimensions/Period/members/Period"),
     ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/dimensions/TimePeriods/members"),        # a collection
     ("GET", "/HyperionPlanning/rest/v3/applications/FinMax/dimensions/TimePeriods"),

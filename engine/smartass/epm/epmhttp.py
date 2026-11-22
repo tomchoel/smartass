@@ -57,8 +57,12 @@ def dimension_list(app: str, cube: str) -> str:
 
 # Oracle's "Get Member" (GET, the member and by default its whole visible subtree; it creates nothing - Add Member is a
 # POST to .../members, never here): the atlas reads a dimension's tree from its top member, which is the dimension's
-# own name. Only these (application, dimension) pairs, as whole paths, no query.
-MEMBER_TREES = (("FinMax", "TimePeriods"), ("FinPlan", "Period"))
+# own name. Only these (application, dimension) pairs, as whole paths, no query: the dimensions the plan-type lists
+# (dimension_list) named on 2026-11-21 - FinLite's are FinMax's application dimensions.
+MEMBER_TREES = (
+    *(("FinMax", d) for d in ("Accounts", "BalanceTypes", "Counterparts", "Currencies", "Entities", "Functions", "GLSources",
+                              "LegalEntities", "Products", "Projects", "Reserves", "Scenarios", "Systems", "TimePeriods")),
+    *(("FinPlan", d) for d in ("Account", "BalanceTypes", "Entity", "Period", "Products", "Scenario", "Version", "Years")))
 
 
 def member_tree(app: str, dim: str) -> str:
