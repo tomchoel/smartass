@@ -1,6 +1,7 @@
 """xl/userjobs.UserJobs, the runner serverkit._call_user uses (light-fast phase 2 Task 5): the same job as
-ExcelHost.call(user_excel=True) gave (test_user_jobs.py pins it through both), handed the runner itself, with its own
-release wait, and the hidden Excel asked for only when a job uses it (app, on_host). On fakes: no Excel."""
+ExcelHost.call(user_excel=True) gave (test_user_jobs.py, test_job_thread.py and test_excel_turn.py pin it through
+UserJobs since Task 6), handed the runner itself, with its own release wait, and the hidden Excel asked for only when
+a job uses it (app, on_host). On fakes: no Excel."""
 import asyncio
 import threading
 import time

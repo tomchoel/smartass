@@ -45,7 +45,7 @@ class UserJobs:
     """The runner of jobs in the user's Excel. hidden: how to reach the engine's hidden Excel (serverkit.host), asked
     only when a job uses app or on_host - never when the runner is made or a job runs."""
 
-    def __init__(self, hidden: Callable[[], Any]):
+    def __init__(self, hidden: Callable[[], Any] | None = None):
         self._hidden = hidden
         self.last_error: str | None = None
         self.restarts = 0                         # Excels that disconnected during a job (_mark_dead)

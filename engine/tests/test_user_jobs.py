@@ -1,8 +1,9 @@
-"""What a job in the USER's Excel goes through (ExcelHost.call(user_excel=True) in 0.5.0; xl/userjobs.py after the
-split of light-fast phase 2 Task 5), step by step, pinned on fakes before the split and unchanged after it: the job's
-own STA thread, the deadline and what happens at it (the job given up on, nothing closed, no release watch), which
-errors become which texts, and that the engine's hidden Excel is never started or reset for it. The turn, the given-up
-mark and the release on the job's own thread are pinned in test_excel_turn.py and test_job_thread.py."""
+"""What a job in the USER's Excel goes through (ExcelHost.call(user_excel=True) in 0.5.0; xl/userjobs.UserJobs since
+the split of light-fast phase 2 Task 5), step by step, pinned on fakes before the split and unchanged after it: the
+job's own STA thread, the deadline and what happens at it (the job given up on, nothing closed, no release watch),
+which errors become which texts. Since Task 6 deleted the hidden Excel these run through UserJobs, the runner
+serverkit._call_user uses (only the entry point changed). The turn, the given-up mark and the release on the job's
+own thread are pinned in test_excel_turn.py and test_job_thread.py."""
 import asyncio
 import threading
 import time
@@ -12,22 +13,13 @@ import pywintypes
 
 from smartass.core import config
 from smartass.xl import jobs
-from smartass.xl.host import ExcelHost, HostError, HostTimeout, InputError
+from smartass.core.errors import HostError, HostTimeout, InputError
+from smartass.xl.userjobs import UserJobs
 
 
-def _never(name):
-    def f(*a, **k):
-        raise AssertionError(f"a user job reached the hidden Excel: {name}")
-    return f
-
-
-def _host() -> ExcelHost:
-    """The host as the 0.5.0 tests make it (no hidden Excel), with every hidden-Excel step a failure."""
-    h = ExcelHost.__new__(ExcelHost)
-    h.last_error, h.pid, h.restarts = None, None, 0
-    for name in ("_ensure_started", "_wait_reset", "_hard_reset", "_open_dialog_note", "_dialogs", "detect", "_start"):
-        setattr(h, name, _never(name))
-    return h
+def _host() -> UserJobs:
+    """The runner of jobs in the user's Excel (serverkit.user_jobs makes one per server)."""
+    return UserJobs()
 
 
 async def _ended(prefix: str) -> None:
@@ -50,7 +42,7 @@ async def test_a_job_runs_on_an_sta_thread_of_its_own_named_for_it_that_ends_aft
         seen["handed"] = hh
         return {"ok": 1}
     h = _host()
-    assert await h.call(job, timeout=10, what="fin_one", user_excel=True) == {"ok": 1}
+    assert await h.call(job, timeout=10, what="fin_one") == {"ok": 1}
     assert seen["name"] == "user-job-fin_one" and seen["daemon"] and seen["token"] == "fin_one"
     assert seen["name"] != threading.current_thread().name and seen["handed"] is h
     await _ended("user-job-fin_one")
@@ -65,8 +57,8 @@ async def test_parallel_jobs_run_at_the_same_time_on_their_own_threads():
         both.wait()                                  # each waits for the other: only if they run at once
         return threading.current_thread().name
     h = _host()
-    got = await asyncio.gather(h.call(job, timeout=10, what="A", user_excel=True),
-                               h.call(job, timeout=10, what="B", user_excel=True))
+    got = await asyncio.gather(h.call(job, timeout=10, what="A"),
+                               h.call(job, timeout=10, what="B"))
     assert got == ["user-job-A", "user-job-B"]
 
 
@@ -86,7 +78,7 @@ async def test_at_the_deadline_the_job_is_given_up_on_nothing_is_closed_and_no_r
     t0 = time.monotonic()
     try:
         with pytest.raises(HostTimeout) as e:
-            await h.call(stuck, timeout=0.4, what="fin_refresh", user_excel=True)
+            await h.call(stuck, timeout=0.4, what="fin_refresh")
         assert time.monotonic() - t0 < 3
         assert str(e.value) == ("Your Excel did not respond within 0s during fin_refresh (a dialog, edit mode, or a "
                                 "large refresh). Nothing was closed. Check Excel for an open dialog, press Esc/Enter, "
@@ -105,7 +97,7 @@ async def test_without_a_timeout_a_job_has_the_user_excel_deadline(monkeypatch):
     excel = threading.Event()
     try:
         with pytest.raises(HostTimeout, match="within 0s during xl_tidy"):
-            await _host().call(lambda hh: excel.wait(30), what="xl_tidy", user_excel=True)
+            await _host().call(lambda hh: excel.wait(30), what="xl_tidy")
     finally:
         excel.set()
 
@@ -121,7 +113,7 @@ async def test_an_excel_that_disconnected_is_said_so_and_counted(hresult):
         raise _com(hresult)
     h = _host()
     with pytest.raises(HostError) as e:
-        await h.call(job, timeout=10, what="fin_x", user_excel=True)
+        await h.call(job, timeout=10, what="fin_x")
     assert type(e.value) is HostError
     assert str(e.value) == ("The Smart View Excel process died during the call; it will restart on the next call. "
                             "Retry.")
@@ -136,7 +128,7 @@ async def test_a_busy_excel_is_said_in_words_with_no_dialog_scan(error):
     def job(hh):
         raise error
     with pytest.raises(HostError) as e:
-        await _host().call(job, timeout=10, what="fin_x", user_excel=True)
+        await _host().call(job, timeout=10, what="fin_x")
     assert str(e.value) == ("Excel was busy during fin_x - probably a cell is being edited or a dialog is open. "
                             "Press Enter or Esc in Excel and ask again.")
     assert not isinstance(e.value, AttributeError)
@@ -147,7 +139,7 @@ async def test_another_com_error_is_named_with_the_request():
     def job(hh):
         raise _com(-2146827284)
     with pytest.raises(HostError) as e:
-        await _host().call(job, timeout=10, what="fin_x", user_excel=True)
+        await _host().call(job, timeout=10, what="fin_x")
     assert type(e.value) is HostError and str(e.value).startswith("COM error during fin_x: (-2146827284, 'x'")
 
 
@@ -156,7 +148,7 @@ async def test_an_unexpected_error_is_readable_with_its_type_and_the_restart_adv
     def job(hh):
         raise KeyError("Q9")
     with pytest.raises(HostError) as e:
-        await _host().call(job, timeout=10, what="fin_x", user_excel=True)
+        await _host().call(job, timeout=10, what="fin_x")
     assert str(e.value) == ("Unexpected KeyError during fin_x: 'Q9'. Retry once; if it repeats, run "
                             "fin_status(restart=True).")
 
@@ -168,7 +160,7 @@ async def test_the_engines_own_errors_pass_as_they_are(error):
     def job(hh):
         raise error
     with pytest.raises(type(error)) as e:
-        await _host().call(job, timeout=10, what="fin_x", user_excel=True)
+        await _host().call(job, timeout=10, what="fin_x")
     assert str(e.value) == str(error) and not isinstance(e.value, HostTimeout)
 
 
@@ -180,7 +172,7 @@ async def test_a_job_that_answers_has_its_release_watched_and_its_turns_freed(mo
         jobs.hold_turn(5151, what="fin_x")
         return "ok"
     h = _host()
-    assert await h.call(job, timeout=10, what="fin_x", user_excel=True) == "ok"
+    assert await h.call(job, timeout=10, what="fin_x") == "ok"
     await _ended("user-job-fin_x")
     jobs.bind_job()
     try:
