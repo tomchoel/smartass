@@ -722,6 +722,27 @@ def test_split_values_come_over_rest_when_the_provider_route_cannot_read_them(mo
     assert asyncio.run(server._child_values("FinLite", parts)) == [-1.0, None] and asked == [False, True]
 
 
+def test_split_values_are_not_asked_of_rest_after_an_error_rest_would_meet_too(monkeypatch):
+    """A NoFallback error (the same token, scope or atlas; the data-source lookup busy) is met by REST as well: the
+    values are only an optimisation, so the children are linked without them and the wait is not doubled."""
+    import asyncio
+    from smartass.epm import svhttp
+    from smartass.epm import drillstep as server
+    monkeypatch.delenv("SV_TEST_NO_HTTP_DRILL")
+    for error in (svhttp.NoFallback("the HTTP route is busy looking up the EPM data sources"),
+                  svhttp.TokenRefused("EPM refused the access token twice (HTTP 401)"),
+                  svhttp.NoScope("no OAuth scope is configured"), svhttp.AtlasStale("the atlas is stale")):
+        asked = []
+
+        class Routes:
+            def child_values(self, conn, parts, rest=False, error=error):
+                asked.append(rest)
+                raise error
+        monkeypatch.setattr(svhttp, "shared", Routes)
+        parts = [_CELL, {**_CELL, "All Time Periods": "Aug 26"}]
+        assert asyncio.run(server._child_values("FinLite", parts)) is None and asked == [False]
+
+
 def test_split_values_neither_route_can_read_are_none_and_every_child_is_linked(monkeypatch):
     import asyncio
     from smartass.epm import svhttp

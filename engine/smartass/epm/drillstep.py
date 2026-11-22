@@ -450,7 +450,8 @@ async def _derived_piece(cell: dict, cube, template: tuple, body: str, state: di
 
 async def _child_values(connection: str, parts: list[dict]) -> list | None:
     """The split children's cube values as one column grid - over the provider route, else over Planning REST - or
-    None (then every child is linked as before: the values are only an optimisation)."""
+    None (then every child is linked as before: the values are only an optimisation). After an error REST would meet
+    as well (svhttp.NoFallback: the same token, scope or atlas) REST is not asked: the wait would only double."""
     import asyncio
 
     from . import svhttp
@@ -463,6 +464,8 @@ async def _child_values(connection: str, parts: list[dict]) -> list | None:
             raise
         except Exception as e:   # noqa: BLE001 - only an optimisation
             log.info("split values not read over %s (%s)", "Planning REST" if over_rest else "HTTP", e)
+            if isinstance(e, svhttp.NoFallback):
+                break
     return None
 
 
