@@ -116,8 +116,28 @@ def register_mcp(path: Path, entry: dict, create: bool = False) -> str:
     servers[SERVER_NAME] = new
     tmp = path.with_name(path.name + ".tmp-smartass")
     tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-    os.replace(tmp, path)
+    _replace(tmp, path)
     return "updated"
+
+
+REPLACE_TRIES, REPLACE_PAUSE_S = 10, 0.1    # Windows can hold a file it has just written for a moment (WinError 5)
+
+
+def _replace(tmp: Path, path: Path) -> None:
+    """os.replace, tried again briefly while Windows refuses it (PermissionError: antivirus or the indexer holds the
+    file just written); after REPLACE_TRIES the error is raised and the temp file removed (path is unchanged)."""
+    for i in range(REPLACE_TRIES):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if i == REPLACE_TRIES - 1:
+                try:
+                    tmp.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                raise
+            time.sleep(REPLACE_PAUSE_S)
 
 
 def _is_junction(p: Path) -> bool:

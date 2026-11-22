@@ -1,6 +1,9 @@
 import json
+import os
 import subprocess
 import winreg
+
+import pytest
 
 from smartass.ops import setup_user
 
@@ -140,6 +143,40 @@ def test_register_mcp_drops_the_v2_side_by_side_entry(tmp_path):
     assert setup_user.register_mcp(p, entry) == "updated"
     servers = json.loads(p.read_text(encoding="utf-8"))["mcpServers"]
     assert list(servers) == ["smartass"] and servers["smartass"]["env"] == {"SV_DRILL_KEEP_WARM": "0"}
+
+
+def _replace_failing(monkeypatch, fails: int):
+    """os.replace as setup_user calls it, refused with WinError 5 the first fails times (Windows holds a file it has
+    just written for a moment: antivirus, the indexer), then the real one; the pauses recorded, not slept."""
+    calls, pauses = [], []
+    real = os.replace
+
+    def replace(src, dst):
+        calls.append(dst)
+        if len(calls) <= fails:
+            raise PermissionError(13, "Access is denied", str(dst))
+        real(src, dst)
+    monkeypatch.setattr(setup_user.os, "replace", replace)
+    monkeypatch.setattr(setup_user.time, "sleep", pauses.append)
+    return calls, pauses
+
+
+def test_register_mcp_retries_a_replace_windows_refuses_for_a_moment(tmp_path, monkeypatch):
+    """The flaky WinError 5 of test_register_mcp_drops_the_v2_side_by_side_entry: the replace is tried again briefly."""
+    p = tmp_path / ".claude.json"
+    p.write_text(json.dumps({"mcpServers": {}}), encoding="utf-8")
+    calls, pauses = _replace_failing(monkeypatch, fails=2)
+    assert setup_user.register_mcp(p, {"type": "stdio", "command": "py.exe", "args": [], "env": {}}) == "updated"
+    assert len(calls) == 3 and len(pauses) == 2 and "smartass" in json.loads(p.read_text(encoding="utf-8"))["mcpServers"]
+
+
+def test_register_mcp_gives_up_on_a_replace_that_stays_refused(tmp_path, monkeypatch):
+    p = tmp_path / ".claude.json"
+    p.write_text(json.dumps({"mcpServers": {}}), encoding="utf-8")
+    calls, _pauses = _replace_failing(monkeypatch, fails=10_000)
+    with pytest.raises(PermissionError):
+        setup_user.register_mcp(p, {"type": "stdio", "command": "py.exe", "args": [], "env": {}})
+    assert len(calls) == setup_user.REPLACE_TRIES and json.loads(p.read_text(encoding="utf-8")) == {"mcpServers": {}}
 
 
 def test_setup_makes_no_sso_watcher_shortcut_and_removes_an_older_releases(tmp_path, monkeypatch):
