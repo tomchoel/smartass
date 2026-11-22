@@ -1,7 +1,6 @@
 """The Excel task pane of an older release (addin/tn-claude, up to 0.7.0) as it may still be registered on a PC, found
-for `smartass doctor`. The pane was registered by hand (0.7.0's addin/README.md): a web add-in whose manifest (Id
-MANIFEST_ID) sat in a shared-folder catalogue that Office trusts (a subkey of HKCU CATALOGUES_KEY whose Url ends in
-TNClaudeCatalog), and a classic Excel-DNA add-in TNClaude64.xll in the old svkit home that Excel loads from an OPENn
+for `smartass doctor`. The pane was registered by hand (0.7.0's addin/README.md): a web add-in whose manifest sat
+in a shared-folder catalogue that Office trusts (a subkey of HKCU CATALOGUES_KEY whose Url ends in TNClaudeCatalog), and a classic Excel-DNA add-in TNClaude64.xll in the old svkit home that Excel loads from an OPENn
 value of its Options (the Add-ins dialog wrote it); its server's start script was meant for the Startup folder.
 Both registry places are Office's own settings (ruling of 22.11): this module only READS them - nothing in smartass
 writes under HKCU\\Software\\Microsoft\\Office - and the doctor says how to remove them in Excel. A Startup entry of the
@@ -11,7 +10,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-MANIFEST_ID = "6f3c9a52-2b1e-4d7a-9c41-7a8e5d2f1b60"        # the pane's manifest.xml <Id>
 CATALOGUE = "TNClaudeCatalog"                               # the shared folder the manifest was put in
 XLL = "TNClaude64.xll"                                      # the classic add-in Excel loads
 OFFICE = r"Software\Microsoft\Office\16.0"
@@ -48,23 +46,14 @@ def _hkcu_subkeys(path: str) -> dict[str, dict[str, object]]:
     return {n: _hkcu_values(f"{path}\\{n}") for n in names}
 
 
-def _holds_manifest(folder: str) -> bool:
-    """True when a manifest in folder carries the pane's Id (a folder that cannot be read holds none we know of)."""
-    try:
-        return any(MANIFEST_ID in p.read_text(encoding="utf-8", errors="ignore").lower()
-                   for p in Path(folder).glob("*.xml"))
-    except OSError:
-        return False
-
-
 def catalogues() -> list[str]:
-    """The Url of every trusted add-in catalogue that is the pane's: its folder is named TNClaudeCatalog, or it holds
-    the pane's manifest (by its Id; read only when the name does not already say it)."""
+    """The Url of every trusted add-in catalogue that is the pane's: its last folder is named TNClaudeCatalog. Matched by
+    the Url alone - no catalogue's folder is read (a share that does not answer would make every doctor run wait)."""
     out = []
     for values in _hkcu_subkeys(CATALOGUES_KEY).values():
         url = str(values.get("Url") or "")
         last = re.split(r"[\\/]", url.rstrip("\\/"))[-1]
-        if url and (last.lower() == CATALOGUE.lower() or _holds_manifest(url)):
+        if url and last.lower() == CATALOGUE.lower():
             out.append(url)
     return out
 

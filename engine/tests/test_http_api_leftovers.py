@@ -120,19 +120,27 @@ def test_setup_stops_the_serve_and_removes_the_entry_in_one_go(pc):
 # ---------------------------------------------------------------- the pane's registration (read only)
 
 
-def test_the_panes_catalogue_is_found_by_its_folder_name_or_by_its_manifest(pc, tmp_path):
+def test_the_panes_catalogue_is_found_by_its_folder_name_only_and_no_folder_is_read(pc, tmp_path, monkeypatch):
+    """A catalogue is the pane's by its Url's last folder (TNClaudeCatalog, any case or separator). No catalogue's
+    folder is read: a network share that does not answer would make every doctor run (and fin_status) wait."""
     shared = tmp_path / "shared"
     shared.mkdir()
-    (shared / "manifest.xml").write_text(f"<OfficeApp><Id>{pane_leftovers.MANIFEST_ID.upper()}</Id></OfficeApp>")
-    other = tmp_path / "other"
-    other.mkdir()
-    (other / "manifest.xml").write_text("<OfficeApp><Id>11111111-2222-3333-4444-555555555555</Id></OfficeApp>")
+    (shared / "manifest.xml").write_text("<OfficeApp><Id>6f3c9a52-2b1e-4d7a-9c41-7a8e5d2f1b60</Id></OfficeApp>")
     pc.subkeys = {"{AAAA}": {"Id": "{AAAA}", "Url": CATALOGUE_URL + "\\", "Flags": 1},
-                  "{BBBB}": {"Id": "{BBBB}", "Url": str(shared), "Flags": 1},
-                  "{CCCC}": {"Id": "{CCCC}", "Url": str(other), "Flags": 1},
-                  "{DDDD}": {"Id": "{DDDD}", "Url": str(tmp_path / "gone" / "Catalog"), "Flags": 1},
+                  "{BBBB}": {"Id": "{BBBB}", "Url": str(shared), "Flags": 1},        # the pane's manifest, another name
+                  "{CCCC}": {"Id": "{CCCC}", "Url": "https://files.example/x/tnclaudecatalog/", "Flags": 1},
+                  "{DDDD}": {"Id": "{DDDD}", "Url": r"\\unreachable.example\share\Catalog", "Flags": 1},
                   "{EEEE}": {"Id": "{EEEE}"}}
-    assert pane_leftovers.catalogues() == [CATALOGUE_URL + "\\", str(shared)]
+
+    def no_read(*args, **kwargs):
+        raise AssertionError("a catalogue's folder was read")
+    with monkeypatch.context() as m:
+        for name in ("glob", "iterdir", "read_text", "read_bytes", "exists", "is_dir", "stat"):
+            m.setattr(Path, name, no_read)
+        m.setattr("builtins.open", no_read)
+        found = pane_leftovers.catalogues()
+    assert found == [CATALOGUE_URL + "\\", "https://files.example/x/tnclaudecatalog/"]
+    assert not hasattr(pane_leftovers, "MANIFEST_ID")
 
 
 def test_the_panes_classic_add_in_is_found_in_excels_open_values(pc):

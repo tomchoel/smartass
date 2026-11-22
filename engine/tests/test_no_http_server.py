@@ -13,7 +13,8 @@ from test_neutral_imports import DOCS, ENGINE, _rel, _sources, doc_findings
 GONE = ["smartass.ops.httpapi"]
 NAMES = ["httpapi", "HTTP_SECRET", "SECRET_FILE", "read_secret", "load_http_secret", "protect_secret", "secret_step",
          "HTTP_PORT", "make_shortcut", "start_if_available", "_xl_changes", "_xl_revert", "_xl_check", "_user_job",
-         "X-Smartass-Secret", "SMARTASS_HTTP", "POST /analyze", "tn-claude", "server.mjs"]
+         "X-Smartass-Secret", "SMARTASS_HTTP", "POST /analyze", "tn-claude", "server.mjs", "add_secret",
+         "_holds_manifest", "MANIFEST_ID"]
 LEFTOVER_USES = {
     ("smartass/core/logsetup.py", "X-Smartass-Secret"): "an older release's log lines may still carry the header: the "
                                                         "scrub keeps it (doctor --bundle)",

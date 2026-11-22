@@ -8,11 +8,10 @@ from smartass.core import logsetup
 
 
 def test_redact_hides_tokens_and_secrets():
-    logsetup.add_secret("s3cr3t-value-123")
     text = ("GET /x?sso_token=abcDEF123456789xyz&a=1 Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.e30.sig "  # allow-secret
-            'secret = "zzzzzzzzzzzzzzzzzzzz" and s3cr3t-value-123')  # allow-secret
+            'secret = "zzzzzzzzzzzzzzzzzzzz"')  # allow-secret
     out = logsetup.redact(text)
-    assert "abcDEF" not in out and "eyJhbG" not in out and "zzzz" not in out and "s3cr3t" not in out
+    assert "abcDEF" not in out and "eyJhbG" not in out and "zzzz" not in out
     assert "GET /x?... " in out                                   # the URL's query goes whole (drillcore.redact's way)
     assert logsetup.redact(f"drill sso_token={secrets.token_urlsafe(18)} ended") == "drill sso_token=*** ended"
 
