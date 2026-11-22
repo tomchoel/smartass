@@ -2,9 +2,10 @@ r"""Stable stdio entry point for Claude Code.
 Registered as: <engine>\.venv\Scripts\python.exe <this file>   (MCP entry 'smartass')
 
 Claude Code never restarts a stdio server by itself. This file is a small relay instead: it runs the real server
-(child_server.py) as a child process and passes MCP JSON-RPC lines through unchanged. The child is replaced (it
-stops gracefully - its Excel closes and Smart View options are restored -, a new one starts, the client's
-'initialize' is replayed and notifications/tools/list_changed is sent so Claude Code refreshes the tool list) when:
+(child_server.py) as a child process and passes MCP JSON-RPC lines through unchanged. The child is replaced (told to
+stop by the end of its input, it finishes and exits; one still running after STOP_GRACE has its process tree ended,
+never an Excel in it - end_tree; a new one starts, the client's 'initialize' is replayed and
+notifications/tools/list_changed is sent so Claude Code refreshes the tool list) when:
 - engine/VERSION changed and nothing is in flight, or
 - the client calls fin_status(restart=True) (an explicit restart; in-flight calls then fail with "retry"), or
 - the child crashed.
@@ -28,7 +29,7 @@ HERE = Path(__file__).resolve().parent
 CHILD = HERE / "child_server.py"
 LOG = Path(os.environ.get("SMARTASS_HOME") or os.environ.get("SVKIT_DIR")
            or Path(os.environ.get("LOCALAPPDATA", str(HERE))) / "smartass") / "logs" / "proxy.log"
-STOP_GRACE = 60          # s for the child to close its Excel on shutdown
+STOP_GRACE = 60          # s for the child to finish and exit once told to stop
 INIT_TIMEOUT = 60        # s for a restarted child to answer the replayed 'initialize'
 STALE_INFLIGHT = 1800    # s after which an unanswered request no longer blocks a reload
 
@@ -51,6 +52,35 @@ def fingerprint() -> tuple:
         return ((HERE / "VERSION").read_text(encoding="utf-8").strip(),)
     except OSError:
         return ("",)
+
+
+def end_tree(root) -> list[int]:
+    """End root (a psutil.Process: the server child) and every process under it, except each excel.exe and everything
+    under that Excel: an Excel the server launched (xl/target._launch_excel: EXCEL.EXE /x <file>) is a child of the
+    server process, and it is the USER's Excel, with the user's workbooks (final review B, I1). The tree is walked
+    one level at a time and an Excel's subtree pruned (children(recursive=True) is a flat list: a filter on the name
+    alone would still end Excel's own children). Read whole first, then ended: the processes under root first, root
+    last. A process gone meanwhile (or not ours to read) is skipped and never stops the others. Returns the pids
+    ended."""
+    import psutil
+    found, todo = [], [root]
+    while todo:
+        p = todo.pop()
+        try:
+            if p is not root and p.name().lower() == "excel.exe":
+                continue                                 # the user's Excel and all under it: never ended
+            todo.extend(p.children())
+        except psutil.Error:
+            continue
+        found.append(p)
+    ended = []
+    for p in found[1:] + found[:1]:
+        try:
+            p.kill()
+            ended.append(p.pid)
+        except psutil.Error:
+            pass
+    return ended
 
 
 RESTART_TOOL = "fin_status"
@@ -107,18 +137,16 @@ class Relay:
             return
         log(f"stopping child pid={c.pid}: {reason}")
         try:
-            c.stdin.close()                  # EOF -> the server's lifespan shuts its Excel down
+            c.stdin.close()                  # EOF -> the server finishes and exits
         except OSError:
             pass
         try:
             c.wait(STOP_GRACE)
         except subprocess.TimeoutExpired:
-            log(f"child pid={c.pid} did not exit in {STOP_GRACE}s - killing its process tree")
+            log(f"child pid={c.pid} did not exit in {STOP_GRACE}s - ending its process tree (never an Excel)")
             try:
                 import psutil
-                p = psutil.Process(c.pid)
-                for k in p.children(recursive=True) + [p]:
-                    k.kill()
+                log(f"ended pids {end_tree(psutil.Process(c.pid))}")
             except Exception as e:   # noqa: BLE001
                 log(f"kill failed: {e}")
                 c.kill()

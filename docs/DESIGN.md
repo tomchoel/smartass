@@ -284,8 +284,15 @@ never stops the rest.
   no stored base). What smartass ends: an Excel it launched itself for a new workbook that could not be saved, when
   nothing else is open in it (`_discard_new` quits it), and an older release's processes: at server start an Excel
   that release started hidden, when its `pids.json` proves it (pid, creation time, `-Embedding`; then the file
-  goes), and in `smartass setup` that release's sign-in watcher of this install. `tests/test_neutral_imports.py` pins
-  the start sites; `tests/conftest.py` and `tests/test_suite_guards.py` pin the kills.
+  goes), and in `smartass setup` that release's sign-in watcher of this install. Outside the engine package two
+  more sites end processes. The relay (`run_server.py` `end_tree`) ends a server that has not exited 60 s after it
+  was told to stop, with every process under it except each Excel and what runs under that Excel: an Excel smartass
+  launched is a child of the server process, and it is your Excel. The task pane's Stop
+  (`addin/tn-claude/server.mjs`, `taskkill /T /F`) ends a pane run's whole process tree, and with it an Excel that
+  run's server launched: an open item, as is anything that ends the server's tree from outside (whether Claude Code
+  does when it ends its MCP server is not known). `tests/test_neutral_imports.py` pins the start sites;
+  `tests/conftest.py` and `tests/test_suite_guards.py` pin the engine's kills, `tests/test_relay_stop.py` the
+  relay's.
 
 ## Knowledge layer (`knowledge/`, sub-spec 2 §1–§4, §8)
 

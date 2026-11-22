@@ -53,7 +53,11 @@ def test_excel_cannot_be_dispatched_and_the_users_excel_cannot_be_launched(below
 
 
 def test_no_process_can_be_killed(below):
-    """The sweep of an older release's hidden Excels and setup's stop of its SSO watcher are the engine's only kills."""
+    """The sweep of an older release's hidden Excels and setup's stop of its SSO watcher are the engine package's only
+    kills. Two more sites end processes, outside the package: the relay's run_server.end_tree (a server that did not
+    exit in time, with its tree, never an Excel in it or what runs under that Excel: tests/test_relay_stop.py), and the
+    task pane's Stop (addin/tn-claude/server.mjs: taskkill /T /F of a pane run's tree, an Excel that run's server
+    launched included - an open item)."""
     from smartass.ops import setup_user
     from smartass.xl import hostproc
     with pytest.raises(GuardViolation, match="never kill a process"):

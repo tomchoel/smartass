@@ -46,7 +46,9 @@ Problems: [docs\troubleshooting.md](docs/troubleshooting.md).
 - **Your own workbooks are never saved** by the engine. Changes made in a workbook you opened are left unsaved for you
   to review (`xl_snapshot` before an edit, `xl_revert` undoes it). Only the engine's own answer workbooks are saved, in
   your `analyser` folder (`paths.analyser`). The engine never restarts your Excel, and closes one only when it started
-  that Excel itself for a new workbook that could not be saved.
+  that Excel itself for a new workbook that could not be saved. A server that does not stop within a minute has its
+  own processes ended, never an Excel. Open item: the Excel task pane's Stop ends everything its run started, also an
+  Excel smartass started for that run, and so does anything that ends the server's processes from outside.
 - **The Produktregnskapet archive is protected:** answers are never written there.
 - **No data, databases or tokens in git.** The pre-commit hook and CI enforce this (`scripts\check_staged.py`);
   logs and `smartass doctor --bundle` redact tokens and secrets.

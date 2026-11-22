@@ -211,6 +211,7 @@ are. If one of these symptoms shows up, the cause below is already known; no new
 | Symptom | Known cause | What to do |
 |---|---|---|
 | An answer in an Excel smartass has just started waits 10 minutes and fails, with Smart View's Login open there | That Login opened later than the watch (25 s after Excel's start, on a slow PC), after smartass's first call into that Excel. | Sign in in the Login or close it, then ask again. |
+| An Excel smartass started closes without saving when you press Stop in the Excel task pane | An Excel smartass starts (no Excel open, or a parallel agent) is a child of the smartass server process. The pane's Stop ends the run's whole process tree, and that Excel with it; so does anything that ends the server's processes from outside. smartass's own stop of a server that does not exit never ends an Excel. | Save your work in such an Excel before you press Stop. An open item. |
 | Every first workbook made with no Excel open has default column widths and fonts, not the TN template's, and none is kept for the next time | The stored look of a new workbook has a column width that is not a standard one, so it is not used; and as a look is stored, smartass does not make that workbook from the template, which would store a new one. | An open item: tell the maintainer. The answers in it are right. |
 
 ## An Excel step behaves differently since 2026-11-19 (the fast COM wrapper)
