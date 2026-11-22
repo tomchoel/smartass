@@ -12,7 +12,6 @@ import uuid
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import pywintypes
 
@@ -20,9 +19,6 @@ from . import dialogs, instances, jobs
 from ..core import config
 from ..core.errors import HostError, InputError
 from .hostproc import retry_busy
-
-if TYPE_CHECKING:
-    from .userjobs import JobHost
 
 NAME_WAIT_S = 60                    # a busy Excel is waited for this long when the workbook's name or path is read
 
@@ -112,9 +108,9 @@ ARCHIVE_REFUSAL = ("'{name}' is in the Produktregnskapet archive (audit record) 
                    "Use target='new', or allow it explicitly for this one request (allow_archive=true).")
 
 
-def resolve_target(h: JobHost, target: str = "session", allow_archive: bool = False, title: str | None = None,
+def resolve_target(h, target: str = "session", allow_archive: bool = False, title: str | None = None,
                    build_new: bool = False) -> Target:
-    """target: 'session' (default: this session's own analysis workbook - created on its first question, reopened
+    """h: the job's runner (xl/userjobs.UserJobs; the resolve itself uses nothing of it). target: 'session' (default: this session's own analysis workbook - created on its first question, reopened
     if closed), 'active' (the workbook the user is working in), 'new' (a new file, which becomes the session's
     workbook), an absolute file path, or the name of an open workbook (e.g. an unsaved 'Book1'). build_new: the caller
     builds a new workbook itself (exceljob.excel_job: the first answer's built file is the workbook) - a target that
@@ -125,7 +121,7 @@ def resolve_target(h: JobHost, target: str = "session", allow_archive: bool = Fa
         return _resolve(h, target, allow_archive, title, build_new)
 
 
-def _resolve(h: JobHost, target: str, allow_archive: bool, title: str | None, build_new: bool) -> Target:
+def _resolve(h, target: str, allow_archive: bool, title: str | None, build_new: bool) -> Target:
     from ..core import session
     if target == "session":
         wb_path = session.workbook()
@@ -179,7 +175,7 @@ def _resolve(h: JobHost, target: str, allow_archive: bool, title: str | None, bu
         return _finish_target(h, t, allow_archive)
 
 
-def _new_target(h: JobHost, title: str, excels, known: set[int] | None = None, build_new: bool = False) -> Target:
+def _new_target(h, title: str, excels, known: set[int] | None = None, build_new: bool = False) -> Target:
     """A new analysis workbook in a FREE Excel, so parallel agents do not wait for each other: the first Excel whose
     turn is free; else (below MAX_EXCELS) a new Excel window started on the TN template; else wait for the first.
     If it cannot be saved, the new workbook is closed unsaved (and an Excel started for it is closed again).
@@ -379,7 +375,7 @@ def _spawn_excel(tpl: Path, known: set[int]):
     raise HostError(f"A new Excel (pid {proc.pid}) did not open the TN template within 120 s.")
 
 
-def _finish_target(h: JobHost, t: Target, allow_archive: bool) -> Target:
+def _finish_target(h, t: Target, allow_archive: bool) -> Target:
     dialogs.refuse_login(t.pid)                             # before any further COM into that Excel
     if (instances.is_archive(t.path) or instances.is_archive(t.full_name)) and not allow_archive:
         raise InputError(ARCHIVE_REFUSAL.format(name=t.name))
@@ -462,7 +458,7 @@ def _wait_busy_holder(pid: int, path: Path) -> Target | None:
         time.sleep(0.5)
 
 
-def _open_path(h: JobHost, path: Path, excels, insts: list[instances.XlInstance] | None = None) -> Target:
+def _open_path(h, path: Path, excels, insts: list[instances.XlInstance] | None = None) -> Target:
     """The workbook at `path`, wherever it is open: any Excel that answers, else a busy Excel showing its window
     (which is named if it stays busy); else opened in the user's running Excel; else in a new Excel."""
     if not path.exists():

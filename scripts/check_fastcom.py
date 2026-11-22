@@ -401,7 +401,7 @@ VBA = ('Public Function C_Echo(a, b)\n    C_Echo = a & "|" & b\nEnd Function\n'
 
 
 def vba_bridge(app, wb, ws, ws2):
-    """The bridge as host._load_bridge builds it and Target.run / HiddenExcel._run call it."""
+    """A VBA module added and run as the old bridge (until 0.6.0) did: the wrapper's calls through Run and VBProject."""
     comp = wb.VBProject.VBComponents.Add(1)
     try:
         comp.Name = "chk" + ws.Name

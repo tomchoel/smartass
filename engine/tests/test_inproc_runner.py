@@ -17,7 +17,7 @@ import fakexl
 from fakexl import Application, Workbook, count_com, snapshot
 from smartass.core import config
 from smartass.xl import jobs
-from smartass.xl.host import HostError
+from smartass.core.errors import HostError
 from smartass.xl.inproc import batch, build, runner
 from smartass.xl.inproc.batch import MISSING, Batch
 

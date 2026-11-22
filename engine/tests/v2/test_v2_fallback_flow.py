@@ -11,7 +11,6 @@ from smartass import server
 from smartass.core import serverkit
 from smartass.data import provider as data_provider
 from smartass.data.provider import FetchResult
-from smartass.epm import drillstep
 from smartass.pipeline import prepare, reply
 from smartass.epm.svhttp import SvHttpError
 
@@ -25,13 +24,13 @@ class Flaky(FakeProvider):
 
 @pytest.fixture
 def no_excel(monkeypatch):
-    """Every way a tool call reaches an Excel (the hidden one, the user's) fails the test."""
+    """Every way a tool call reaches an Excel (the user's: the engine has none of its own) fails the test."""
     jobs = []
 
     async def excel(*a, **k):
         jobs.append(k.get("what") or (a[1] if len(a) > 1 else "?"))
         raise AssertionError("Excel was used")
-    for mod, name in ((serverkit, "_call"), (serverkit, "_call_user"), (server, "_user"), (drillstep, "_call")):
+    for mod, name in ((serverkit, "_call_user"), (server, "_user")):
         monkeypatch.setattr(mod, name, excel)
     monkeypatch.setattr(server, "run_prepare",
                         lambda raw, prov, lines=None, **kw: prepare(raw, resolver(), prov, lines=lines, **kw))

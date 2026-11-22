@@ -1,7 +1,7 @@
 """The atlas over the token session: one dimension's member tree from Oracle's Planning REST "Get Member" - GET
 epmhttp.member_tree(app, dim) (.../applications/{app}/dimensions/{dim}/members/{dim}) with ?fields=MEMBER_FIELDS, the
-top member and its whole visible subtree, nested - turned into the rows the hidden Excel's zoom gave the atlas
-(ops.dump_dimension: Smart View zooms the top member to all levels and grid.tree_from_labels reads the indented
+top member and its whole visible subtree, nested - turned into the rows the old hidden-Excel build's zoom gave the
+atlas (until 0.6.0: Smart View zoomed the top member to all levels and grid.tree_from_labels read the indented
 labels). Live 2026-11-22 (docs/audit/2026-11-22-atlas-rest.md): 201 on every dimension of both pods, all of them in
 about 8 s; today's rows reproduced, key for key.
 
@@ -85,7 +85,7 @@ def label(n: dict) -> str:
 
 def rows(tree: dict, cube: str, period: bool = False) -> list[dict]:
     """The atlas rows of one dimension for plan type cube: [{label, name, depth, parent, order, *EXTRA}], as
-    ops.dump_dimension + tree_from_labels gave them (see the module's text). period: a period dimension (the plan
+    the old Smart View zoom + tree_from_labels gave them (see the module's text). period: a period dimension (the plan
     type's list says dimType 'Period'), the only kind whose Dynamic Time Series members are left out."""
     labels: list[str] = []
     extras: list[dict] = []

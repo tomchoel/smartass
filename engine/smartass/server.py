@@ -2,7 +2,7 @@
 """smartass: the MCP server (stdio; started by run_server.py through child_server.py). Tools: fin_analyze (new
 question or follow-up patch), fin_lookup, fin_status, fin_refresh, fin_drill, and xl_snapshot / xl_revert / xl_tidy
 for edits to open workbooks made with Excel MCP. Error text (guard), Excel jobs (_call_user, progress notes) and the
-lifespan (keeping the EPM sign-ins fresh, closing the hidden Excel) come from core.serverkit."""
+lifespan (keeping the EPM sign-ins fresh) come from core.serverkit."""
 from __future__ import annotations
 
 import asyncio
@@ -397,10 +397,10 @@ async def fin_critic(q: int | None = None, scores: list[int] | None = None, note
 async def fin_status(restart: bool = False) -> dict:
     """Health: version, atlas age, knowledge build (metrics, facts, drafts awaiting approval), where answer files go,
     the last save Excel did after a reply (save_after_reply: workbook, ok, error, seconds, when; and how many are still
-    to come), and the doctor checks (config, Excel, Smart View, VBA access, EPM, oauth sign-in, atlas, knowledge, output
-    folder, HTTP API, update; only problems listed).
-    restart=True after repeated errors or to load new code: the relay starts a fresh server process (its hidden
-    Excel closes); run without the relay, only this server's own Excel is closed (it restarts on the next pull).
+    to come), and the doctor checks (config, Excel, Smart View start-up, EPM, oauth sign-in, atlas, knowledge, output
+    folder, HTTP API, update, leftovers of an older release; only problems listed).
+    restart=True after repeated errors or to load new code: the relay starts a fresh server process; run without the
+    relay, this server's EPM sessions and its runner of Excel jobs start afresh (the next call makes new ones).
     A stale atlas: run `smartass atlas build` in a terminal."""
     import os
 
@@ -410,10 +410,11 @@ async def fin_status(restart: bool = False) -> dict:
         if os.environ.get("SVKIT_PROXY"):
             out["restarted"] = "relay"             # run_server.py replaced the child before forwarding this call
         else:
-            old, kit._host = kit._host, None
-            if old is not None:
-                await asyncio.to_thread(old.shutdown)
-            out["restarted"] = "excel"
+            from .epm import drill_token, svhttp
+            svhttp.reset()                           # the grids' sessions and data-source list
+            drill_token.reset()                      # the drill's route and sessions
+            kit._users = None                        # the runner of Excel jobs (its last error, its count)
+            out["restarted"] = "sessions"
     with contextlib.closing(atlas.connect()) as db:
         st = atlas.status(db)
     from .knowledge.build import summary

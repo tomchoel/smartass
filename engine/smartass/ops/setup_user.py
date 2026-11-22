@@ -167,20 +167,63 @@ def make_shortcut(lnk: Path, target: str, args: str, workdir: str) -> None:
     sc.Save()
 
 
+LEGACY_STARTUP = ("smartass-sso-watcher.lnk", "svkit-sso-watcher.lnk")   # the SSO watcher's, removed (Task 6)
+WATCHER_PS1 = config.ENGINE_DIR / "sso_watcher.ps1"      # an older release's Smart View SSO watcher (deleted)
+
+
 def startup_entries() -> list[str]:
     venv = config.ENGINE_DIR / ".venv" / "Scripts"
-    logs = config.HOME / "logs"
-    logs.mkdir(parents=True, exist_ok=True)
+    (config.HOME / "logs").mkdir(parents=True, exist_ok=True)
     make_shortcut(STARTUP / "smartass-engine.lnk", str(venv / "pythonw.exe"), "-m smartass.ops.cli serve",
                   str(config.ENGINE_DIR))
-    make_shortcut(STARTUP / "smartass-sso-watcher.lnk", "powershell.exe",
-                  f'-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "{config.ENGINE_DIR / "sso_watcher.ps1"}"'
-                  f' -LogDir "{logs}"', str(config.ENGINE_DIR))
-    out = ["startup: smartass-engine.lnk, smartass-sso-watcher.lnk"]
-    legacy = STARTUP / "svkit-sso-watcher.lnk"
-    if legacy.exists():
-        legacy.unlink()
-        out.append("startup: removed legacy svkit-sso-watcher.lnk")
+    out = ["startup: smartass-engine.lnk"]
+    for name in LEGACY_STARTUP:
+        legacy = STARTUP / name
+        if legacy.exists():
+            legacy.unlink()
+            out.append(f"startup: removed {name} (the Smart View SSO watcher is gone)")
+    out += stop_old_watcher()
+    return out
+
+
+def _watchers(script: Path = WATCHER_PS1) -> list[tuple[int, bool]]:
+    """(pid, ours) of each running PowerShell whose command line names an sso_watcher.ps1: ours only when it names
+    THIS install's script by its full path (case-insensitive) - another checkout's watcher on this PC is not."""
+    import psutil
+    want = str(script).lower()
+    out = []
+    for p in psutil.process_iter(["name", "cmdline"]):
+        try:
+            if (p.info["name"] or "").lower() in ("powershell.exe", "pwsh.exe"):
+                cmd = " ".join(p.info["cmdline"] or []).lower()
+                if "sso_watcher.ps1" in cmd:
+                    out.append((p.pid, want in cmd))
+        except psutil.Error:
+            continue
+    return out
+
+
+def _kill(pid: int) -> None:
+    import psutil
+    psutil.Process(pid).kill()
+
+
+def stop_old_watcher(found=None, kill=None) -> list[str]:
+    """The SSO watcher an older release started at logon, stopped when its command line proves it is ours (it names
+    this install's script path); any other is left running, and said so."""
+    import psutil
+    found, kill = found or _watchers, kill or _kill
+    out = []
+    for pid, ours in found():
+        if not ours:
+            out.append(f"startup: an SSO watcher of another smartass install (pid {pid}) is left running")
+            continue
+        try:
+            kill(pid)
+            out.append(f"startup: stopped the old Smart View SSO watcher (pid {pid})")
+        except psutil.Error as e:                 # gone meanwhile, or not ours to end: setup goes on
+            out.append(f"startup: the old Smart View SSO watcher (pid {pid}) could not be stopped ({type(e).__name__});"
+                       " it ends at the next logoff")
     return out
 
 

@@ -7,8 +7,7 @@ the cost of a call. `Fast` is that same wrapper with one change: what it learns 
 properties or methods, their ids, the compiled method stubs) is kept per interface IID and shared by every object of
 that interface. After warm-up a new object costs the two cheap type-information calls in `wrap` and nothing more.
 
-`wrap` is applied at the engine's COM roots (xl/instances.py: the user's Excel behind a workbook window; xl/host.py:
-the hidden Excel); everything a Fast object returns (attribute gets, calls, method results, iteration) is Fast too.
+`wrap` is applied at the engine's COM root (xl/instances.py: the user's Excel behind a workbook window); everything a Fast object returns (attribute gets, calls, method results, iteration) is Fast too.
 SV_FASTCOM=0 (config.FASTCOM) gives the standard wrapper instead, to rule this module out when diagnosing.
 
 Rules:

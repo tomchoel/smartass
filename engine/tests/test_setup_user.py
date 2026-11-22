@@ -140,3 +140,40 @@ def test_register_mcp_drops_the_v2_side_by_side_entry(tmp_path):
     assert setup_user.register_mcp(p, entry) == "updated"
     servers = json.loads(p.read_text(encoding="utf-8"))["mcpServers"]
     assert list(servers) == ["smartass"] and servers["smartass"]["env"] == {"SV_DRILL_KEEP_WARM": "0"}
+
+
+def test_setup_makes_no_sso_watcher_shortcut_and_removes_an_older_releases(tmp_path, monkeypatch):
+    """Task 6: the Smart View SSO watcher is gone. Setup makes only the engine's Startup shortcut, removes the
+    watcher's (and the svkit one) where an older release left it, and stops a watcher only when it is ours."""
+    monkeypatch.setattr(setup_user, "STARTUP", tmp_path)
+    monkeypatch.setattr(setup_user.config, "HOME", tmp_path / "home")
+    made = []
+    monkeypatch.setattr(setup_user, "make_shortcut", lambda lnk, *a: made.append(lnk.name))
+    for name in ("smartass-sso-watcher.lnk", "svkit-sso-watcher.lnk"):
+        (tmp_path / name).write_text("x")
+    monkeypatch.setattr(setup_user, "_watchers", lambda: [])
+    out = setup_user.startup_entries()
+    assert made == ["smartass-engine.lnk"] and not list(tmp_path.glob("*sso-watcher.lnk"))
+    assert out[0] == "startup: smartass-engine.lnk" and sum("removed" in s for s in out) == 2
+
+
+def test_only_this_installs_watcher_is_stopped_another_is_left_and_said(monkeypatch):
+    killed = []
+    out = setup_user.stop_old_watcher(found=lambda: [(11, True), (22, False)], kill=killed.append)
+    assert killed == [11]
+    assert out == ["startup: stopped the old Smart View SSO watcher (pid 11)",
+                   "startup: an SSO watcher of another smartass install (pid 22) is left running"]
+
+
+def test_a_watcher_is_ours_only_when_its_command_line_names_this_installs_script(monkeypatch, tmp_path):
+    import psutil
+
+    class P:
+        def __init__(self, pid, name, cmd):
+            self.pid, self.info = pid, {"name": name, "cmdline": cmd}
+    ours = str(tmp_path / "engine" / "sso_watcher.ps1")
+    procs = [P(1, "powershell.exe", ["powershell.exe", "-File", ours.upper()]),
+             P(2, "powershell.exe", ["powershell.exe", "-File", r"C:\other\engine\sso_watcher.ps1"]),
+             P(3, "powershell.exe", ["powershell.exe", "-File", "x.ps1"]), P(4, "python.exe", ["sso_watcher.ps1"])]
+    monkeypatch.setattr(psutil, "process_iter", lambda attrs: procs)
+    assert setup_user._watchers(tmp_path / "engine" / "sso_watcher.ps1") == [(1, True), (2, False)]

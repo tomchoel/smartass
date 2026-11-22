@@ -10,7 +10,7 @@ from smartass.core import config, session
 from smartass.xl import dialogs, styling
 from smartass.xl import instances, jobs, target
 from smartass.xl.dialogs import Dialog
-from smartass.xl.host import HostError
+from smartass.core.errors import HostError
 
 
 class FakeProc:
@@ -243,8 +243,6 @@ class NamedWb:
 
 
 def _by_name(monkeypatch, windows: dict, apps: dict):
-    from smartass.epm import sso
-    monkeypatch.setattr(sso, "ensure_global_watcher", lambda: True)
     monkeypatch.setattr(target, "_finish_target", lambda h, t, allow_archive: t)
     _excels(monkeypatch, windows, apps)
 
@@ -265,7 +263,7 @@ def test_open_workbook_is_targeted_by_name_without_extension(tmp_path, monkeypat
 
 
 def test_two_open_workbooks_with_the_same_name_are_ambiguous(tmp_path, monkeypatch, fast):
-    from smartass.xl.host import InputError
+    from smartass.core.errors import InputError
     a = NamedWb("Pack.xlsx", str(tmp_path / "a" / "Pack.xlsx"))
     b = NamedWb("Pack.xlsx", str(tmp_path / "b" / "Pack.xlsx"))
     _by_name(monkeypatch, {11: ["Pack.xlsx"], 22: ["Pack.xlsx"]}, {11: FakeApp(Books([a])), 22: FakeApp(Books([b]))})
@@ -275,7 +273,7 @@ def test_two_open_workbooks_with_the_same_name_are_ambiguous(tmp_path, monkeypat
 
 
 def test_unknown_name_is_refused_naming_the_open_workbooks(tmp_path, monkeypatch, fast):
-    from smartass.xl.host import InputError
+    from smartass.core.errors import InputError
     _by_name(monkeypatch, {11: ["Book1"]}, {11: FakeApp(Books([NamedWb("Book1"), NamedWb("x.xlam")]))})
     with pytest.raises(InputError, match="absolute path") as e:
         target.resolve_target(None, "Book9")
@@ -283,9 +281,7 @@ def test_unknown_name_is_refused_naming_the_open_workbooks(tmp_path, monkeypatch
 
 
 def test_archive_guard_applies_to_a_workbook_targeted_by_name(tmp_path, monkeypatch, fast):
-    from smartass.epm import sso
-    from smartass.xl.host import InputError
-    monkeypatch.setattr(sso, "ensure_global_watcher", lambda: True)
+    from smartass.core.errors import InputError
     arch = config.ARCHIVE_ROOT / "2024" / "Model.xlsx"
     _excels(monkeypatch, {11: ["Model.xlsx"]}, {11: FakeApp(Books([NamedWb("Model.xlsx", str(arch))]))})
     with pytest.raises(InputError, match="archive"):
@@ -454,8 +450,6 @@ def test_without_an_excel_a_new_workbook_is_made_as_today_even_when_the_job_woul
 def test_resolve_target_leaves_the_session_alone_for_a_workbook_the_job_builds(tmp_path, monkeypatch, fast):
     """The session's workbook is set once the answer is in it (exceljob.excel_job): a job that fails deletes the
     file. A failure while the Excel is made ready (the bridge) deletes the reserved file too."""
-    from smartass.epm import sso
-    monkeypatch.setattr(sso, "ensure_global_watcher", lambda: True)
     monkeypatch.setattr(session, "project_dir", lambda: tmp_path)
     monkeypatch.setattr(session, "set_workbook", lambda p: pytest.fail("the session is set after the answer"))
     app = FakeApp(Opener())

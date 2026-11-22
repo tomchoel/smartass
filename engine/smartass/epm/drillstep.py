@@ -47,11 +47,6 @@ class DrillResult:
     stages: dict = field(default_factory=dict)
 
 
-async def _call(fn, what: str = "call"):
-    from ..core.serverkit import _call as call
-    return await call(fn, what=what)
-
-
 @contextmanager
 def timed(stages: dict, name: str):
     """Stage time recorded in `stages` (stage() is thread-local, and the drill awaits on the event loop)."""

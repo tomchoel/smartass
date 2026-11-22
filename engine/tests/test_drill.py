@@ -599,40 +599,6 @@ def test_drill_retries_once_on_empty_provider_response(monkeypatch):
     assert len(tries) == 1
 
 
-def test_drill_link_reports_a_failed_status(monkeypatch):
-    from smartass.epm import ops
-    from smartass.xl.host import HostError
-
-    class Lay:
-        nr, nc = 1, 1
-    monkeypatch.setattr(ops, "query", lambda *a, **k: (Lay(), None, None))
-    monkeypatch.setattr(ops, "ensure_grid_sheet", lambda h, conn: "grid")
-
-    class Rng:
-        Value = -5.0
-
-    class WS:
-        def Range(self, a):
-            return Rng()
-
-    class WB:
-        def Worksheets(self, name):
-            return WS()
-
-    class H:
-        wb = WB()
-        reply = None
-
-        def run(self, fn, *a):
-            return self.reply
-    h = H()
-    h.reply = ("ERR|-17|no connection|", None, None, None)
-    with pytest.raises(HostError, match="ERR"):
-        ops.drill_link(h, "FinLite", _CELL)
-    h.reply = ("OK", None, None, None)
-    assert ops.drill_link(h, "FinLite", _CELL)["url"] is None
-
-
 def test_drill_formula_treats_none_as_blank():
     assert dx.drill_formula("T", {"AP_CUSTOMER_NAME": None}) == dx.drill_formula("T", {"AP_CUSTOMER_NAME": ""})
 
@@ -647,8 +613,8 @@ def test_profile_shares_for_no_supplier_and_untagged(whs):
 
 # ------------------------------------------------------------------ reliability audit (Task 11)
 def test_drill_cell_defaults_entity_and_needs_account_and_period():
-    from smartass.xl.host import InputError
-    from smartass.epm.ops import drill_cell_defaults
+    from smartass.core.errors import InputError
+    from smartass.epm.drillcore import drill_cell_defaults
     cell, w = drill_cell_defaults({"All Accounts": "ac.12881", "All Time Periods": "Sep 26"})
     assert cell["All Entities"] == "All Entities" and "All Entities not given" in w[0]
     cell, w = drill_cell_defaults({"All Accounts": "a", "All Time Periods": "p", "All Entities": "un.SY"})
@@ -664,9 +630,6 @@ def test_drill_link_uses_http_and_never_excel(monkeypatch):
     monkeypatch.delenv("SV_TEST_NO_HTTP_DRILL")
     monkeypatch.setattr(server, "_http_link", lambda conn, cell: {"url": "u", "cube_value": -1.0, "report": "r"})
 
-    async def no_excel(fn, what="call"):
-        raise AssertionError("Excel was used")
-    monkeypatch.setattr(server, "_call", no_excel)
     assert asyncio.run(server._link("FinLite", _CELL)) == {"url": "u", "cube_value": -1.0, "report": "r"}
 
 
@@ -681,9 +644,6 @@ def test_a_drill_link_the_http_route_cannot_fetch_is_a_clear_error_never_excel(m
         raise svhttp.SvHttpError("Smart View provider: session gone")
     monkeypatch.setattr(server, "_http_link", broken)
 
-    async def no_excel(fn, what="call"):
-        raise AssertionError("Excel was used")
-    monkeypatch.setattr(server, "_call", no_excel)
     with pytest.raises(server.ToolError, match="drill link .* could not be fetched.*session gone.*no other route"):
         asyncio.run(server._link("FinLite", _CELL))
 
@@ -778,9 +738,6 @@ def test_with_the_http_route_switched_off_the_drill_link_says_so(monkeypatch):
     import asyncio
     from smartass.epm import drillstep as server
 
-    async def no_excel(fn, what="call"):
-        raise AssertionError("Excel was used")
-    monkeypatch.setattr(server, "_call", no_excel)
     monkeypatch.setattr(server, "_http_link", lambda conn, cell: pytest.fail("the HTTP route is off"))
     with pytest.raises(server.ToolError, match="switched off.*SV_TEST_NO_HTTP_DRILL"):
         asyncio.run(server._link("FinLite", _CELL))
@@ -801,9 +758,6 @@ def test_split_values_come_over_rest_when_the_provider_route_cannot_read_them(mo
             return [-1.0, None]
     monkeypatch.setattr(svhttp, "shared", Routes)
 
-    async def no_excel(fn, what="call"):
-        raise AssertionError("Excel was used")
-    monkeypatch.setattr(server, "_call", no_excel)
     parts = [_CELL, {**_CELL, "All Time Periods": "Aug 26"}]
     assert asyncio.run(server._child_values("FinLite", parts)) == [-1.0, None] and asked == [False, True]
 
@@ -860,9 +814,6 @@ def test_split_values_neither_route_can_read_are_none_and_every_child_is_linked(
             raise svhttp.SvHttpError("down")
     monkeypatch.setattr(svhttp, "shared", Broken)
 
-    async def no_excel(fn, what="call"):
-        raise AssertionError("Excel was used")
-    monkeypatch.setattr(server, "_call", no_excel)
     assert asyncio.run(server._child_values("FinLite", [_CELL, {**_CELL, "All Time Periods": "Aug 26"}])) is None
     monkeypatch.setenv("SV_TEST_NO_HTTP_DRILL", "1")                     # the HTTP route off: not read at all
     assert asyncio.run(server._child_values("FinLite", [_CELL, {**_CELL, "All Time Periods": "Aug 26"}])) is None
@@ -878,9 +829,6 @@ def test_a_drill_link_without_a_sign_in_is_raised_not_sent_to_excel(monkeypatch)
         raise oauth.NotSignedIn("not signed in to https://plan1.example: run `smartass login`")
     monkeypatch.setattr(server, "_http_link", not_signed_in)
 
-    async def no_excel(fn, what="call"):
-        raise AssertionError("Excel was used")
-    monkeypatch.setattr(server, "_call", no_excel)
     with pytest.raises(oauth.NotSignedIn):
         asyncio.run(server._link("FinLite", _CELL))
 
@@ -896,9 +844,6 @@ def test_split_values_without_a_sign_in_are_raised_not_sent_to_excel(monkeypatch
             raise oauth.NotSignedIn("not signed in")
     monkeypatch.setattr(svhttp, "shared", NoSignIn)
 
-    async def no_excel(fn, what="call"):
-        raise AssertionError("Excel was used")
-    monkeypatch.setattr(server, "_call", no_excel)
     with pytest.raises(oauth.NotSignedIn):
         asyncio.run(server._child_values("FinLite", [_CELL, {**_CELL, "All Time Periods": "Aug 26"}]))
 

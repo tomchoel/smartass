@@ -12,7 +12,7 @@ import pywintypes
 
 from smartass.core import config
 from smartass.xl import dialogs, instances, jobs, target
-from smartass.xl.host import HostError
+from smartass.core.errors import HostError
 from smartass.xl.inproc import later, runner
 from smartass.xl.workbench import books
 
@@ -78,10 +78,8 @@ class App:
 def test_the_active_workbooks_name_is_read_with_a_busy_excel_waited_for(clock, monkeypatch):
     """Review 2 (Task 2): target='active' read the active workbook's name with plain COM before its turn; an 'active'
     question sent within about 1.4 s of a reply failed with "Call was rejected by callee"."""
-    from smartass.epm import sso
     wb = Book("answer.xlsx", r"C:\a\answer.xlsx", Rejects(clock, until=clock["t"] + 1))
     app = App(active=wb)
-    monkeypatch.setattr(sso, "ensure_global_watcher", lambda: True)
     monkeypatch.setattr(instances, "excel_instances", lambda: [instances.XlInstance(7, 70, ["answer"], app)])
     monkeypatch.setattr(jobs, "hold_turn", lambda *a, **k: True)
     monkeypatch.setattr(target, "_finish_target", lambda h, t, allow: t)

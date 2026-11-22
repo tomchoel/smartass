@@ -1,5 +1,5 @@
 """The engine's own errors, neutral: no COM, no Excel. A job in the user's Excel, the EPM routes and the server raise
-and catch these; xl/host.py (the engine's hidden Excel) re-exports them, so the classes are one and the same."""
+and catch these."""
 from __future__ import annotations
 
 

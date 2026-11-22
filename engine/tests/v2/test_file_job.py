@@ -23,7 +23,7 @@ from smartass.model.errors import GuardError
 from smartass.model.lines import LineSet
 from smartass.render import look, xlsx
 from smartass.xl import movein, sheets
-from smartass.xl.host import HostError
+from smartass.core.errors import HostError
 from smartass.xl.inproc import runner
 from smartass.xl.inproc.batch import Batch
 from smartass.xl.inproc.runner import BatchError

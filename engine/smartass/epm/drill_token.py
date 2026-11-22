@@ -302,3 +302,12 @@ def shared() -> TokenDrill:
         if _shared is None:
             _shared = TokenDrill()
         return _shared
+
+
+def reset() -> None:
+    """The next drill gets a fresh TokenDrill on fresh sessions (new cookie jars and keys): fin_status(restart=True)
+    without the relay. A drill in flight finishes on what it has."""
+    global _shared
+    with _shared_lock:
+        _shared = None
+    epmhttp.reset()

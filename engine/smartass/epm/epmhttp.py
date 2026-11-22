@@ -523,6 +523,13 @@ _sessions: dict[str, EpmSession] = {}
 _sessions_lock = threading.Lock()
 
 
+def reset() -> None:
+    """The next drill gets fresh sessions (new cookie jars and keys): fin_status(restart=True) without the relay. A
+    drill in flight finishes on the session it has."""
+    with _sessions_lock:
+        _sessions.clear()
+
+
 def session(base: str) -> EpmSession:
     """The process's one session (one cookie jar) per pod origin."""
     pod = oauth.origin(base)

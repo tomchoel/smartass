@@ -32,8 +32,8 @@ printed as "saved after"; a failed one stops the run) before it reads Workbook.S
 reads the saved file itself with openpyxl (read-only): every answer's sheets there and the last answer's row on its
 Sources log.
 Only the workbook this script created is touched, and closed at the end (without saving: the engine saved it after
-every answer) unless --keep; the user's own workbooks and Excel are never saved or closed. At the end only the
-engine's own hidden Excel is shut down, as the server's lifespan does.
+every answer) unless --keep; the user's own workbooks and Excel are never saved or closed (the engine has no Excel of
+its own to shut down).
 """
 import argparse
 import asyncio
@@ -494,7 +494,6 @@ async def check(case: dict, second: dict, keep: bool, settle: float = 0.0) -> in
                 print(f"{'saved file':<14} {'checks OK' if not disk else 'DIFF: ' + '; '.join(disk)}", flush=True)
                 if disk and not failed:
                     failed = "the saved file: " + "; ".join(disk)
-        _shutdown(kit)
     for x in sorted(texts):
         print(f"  reply note: {x}", flush=True)
     print(f"executor: {executor()}", flush=True)
@@ -503,12 +502,6 @@ async def check(case: dict, second: dict, keep: bool, settle: float = 0.0) -> in
         return 2
     print("\nall steps OK", flush=True)
     return 0
-
-
-def _shutdown(kit) -> None:
-    """As the server's lifespan ends: the engine's own hidden Excel only."""
-    if kit._host is not None:
-        kit._host.shutdown()
 
 
 def main(argv=None) -> int:

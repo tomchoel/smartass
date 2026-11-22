@@ -73,7 +73,8 @@ def _app_from_window(ex7: int):
 
 
 def engine_excel_pids() -> set[int]:
-    """The hidden automation Excels the smartass servers started (pids.json): never a user's Excel."""
+    """The hidden Excels an older release's engine started (pids.json, while it exists: hostproc.sweep_leftovers):
+    never a user's Excel."""
     from .hostproc import _PidRegistry
     return {int(i["pid"]) for i in _PidRegistry().load() if isinstance(i, dict) and i.get("pid")}
 

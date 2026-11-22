@@ -355,7 +355,7 @@ def test_only_a_period_dimension_loses_its_dynamic_time_series_members(tmp_path)
 
 def test_the_cli_says_a_skipped_dimension_on_its_last_line(monkeypatch, capsys):
     skipped = "dimension All Colours is new in EPM; this release cannot read it - update smartass"
-    monkeypatch.setattr(atlas_build, "run_build", lambda cubes, dims, excel: [
+    monkeypatch.setattr(atlas_build, "run_build", lambda cubes, dims: [
         {"connection": "FinMax", "dimension": "All Accounts", "members": 3},
         {"connection": "FinMax", "dimension": "All Colours", "skipped": skipped}])
     assert cli.main(["atlas", "build"]) == 0
@@ -456,7 +456,7 @@ def test_every_attempt_is_recorded_for_atlas_status(tmp_path, monkeypatch):
 
 
 def test_the_cli_says_not_replaced_on_its_last_line_and_fails(monkeypatch, capsys):
-    monkeypatch.setattr(atlas_build, "run_build", lambda cubes, dims, excel: [
+    monkeypatch.setattr(atlas_build, "run_build", lambda cubes, dims: [
         {"connection": "FinMax", "dimension": "All Accounts", "members": 3},
         {"connection": "-", "error": "atlas not replaced: nothing was built (no such dimension?)"}])
     assert cli.main(["atlas", "build"]) == 1
@@ -562,14 +562,15 @@ def test_reading_the_atlas_adds_no_table(tmp_path):
         assert atlas.canonical(db, "FinMax", "All Accounts", "ac.old") == "ac.OLD"
 
 
-def test_the_cli_builds_over_rest_and_the_old_route_stays_behind_a_flag(monkeypatch, capsys):
-    """The gate passed (docs/audit/2026-11-22-atlas-rest.md): REST is the default; --excel is the hidden Excel's zoom
-    until Task 6."""
+def test_the_cli_builds_over_rest_only_the_old_excel_route_is_gone(monkeypatch, capsys):
+    """The gate passed (docs/audit/2026-11-22-atlas-rest.md); Task 6 deleted the hidden Excel's zoom and its --excel."""
     seen = []
-    monkeypatch.setattr(atlas_build, "run_build", lambda cubes, dims, excel: seen.append(excel) or [
+    monkeypatch.setattr(atlas_build, "run_build", lambda cubes, dims: seen.append((cubes, dims)) or [
         {"connection": "FinMax", "dimension": "x", "members": 3}])
-    assert cli.main(["atlas", "build"]) == 0 and cli.main(["atlas", "build", "--excel"]) == 0
-    assert seen == [False, True]
+    assert cli.main(["atlas", "build"]) == 0 and seen == [(None, None)]
+    with pytest.raises(SystemExit):
+        cli.main(["atlas", "build", "--excel"])
+    assert not hasattr(atlas_build, "build")
 
 
 def test_run_build_goes_over_rest_into_the_atlas_and_derives_the_cards_after_the_swap(tmp_path, monkeypatch):

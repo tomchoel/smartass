@@ -1,5 +1,6 @@
 import json
 import zipfile
+from pathlib import Path
 
 from smartass.core import config
 from smartass.ops import doctor
@@ -63,28 +64,86 @@ def test_smartview_startup_check_warns_when_the_login_at_startup_or_diagnostics_
     assert doctor._smartview_startup(reader({})).status == "OK"      # not set: Smart View's own defaults
 
 
-def test_vba_access_check_names_the_trust_center_fix():
-    key = r"Software\Microsoft\Office\16.0\Excel\Security"
-    seen = []
-
-    def reader(values):
-        def read(path, name):
-            seen.append((path, name))
-            return values.get((path, name))
-        return read
-    ok = doctor._vba_access(reader({(key, "AccessVBOM"): 1}))
-    assert ok.status == "OK" and ok.name == "vba_access"
-    assert (key, "AccessVBOM") in seen
-    for values in ({(key, "AccessVBOM"): 0}, {}):
-        off = doctor._vba_access(reader(values))
-        assert off.status == "FAIL"
-        assert "Trust Center" in off.fix and "Trust access to the VBA project object model" in off.fix
-    policy = r"Software\Policies\Microsoft\Office\16.0\Excel\Security"
-    assert doctor._vba_access(reader({(policy, "AccessVBOM"): 0, (key, "AccessVBOM"): 1})).status == "FAIL"
+def test_the_checks_of_excel_as_engine_smart_view_and_vba_access_are_gone():
+    """Task 6: what a PC needs now is Excel for answers, the sign-in and the atlas - not Smart View, not VBA access."""
+    names = [f.__name__ for f in doctor.CHECKS]
+    assert "_vba_access" not in names and "_smartview" not in names
+    assert {"_excel", "_oauth", "_atlas", "_smartview_startup", "_leftovers"} <= set(names)
 
 
-def test_vba_access_is_a_doctor_check():
-    assert doctor._vba_access in doctor.CHECKS
+def _home(monkeypatch, tmp_path):
+    from smartass.core import config
+    monkeypatch.setattr(config, "SVKIT", tmp_path)
+    monkeypatch.setattr(config, "LEGACY_HOME", None)
+    return tmp_path
+
+
+def test_nothing_left_behind_is_ok(monkeypatch, tmp_path):
+    _home(monkeypatch, tmp_path)
+    assert doctor._leftovers().status == "OK" and doctor.fix_leftovers(say=lambda s: None) == []
+
+
+def test_a_crashed_runs_smart_view_options_are_reported_with_their_values_and_how_to_set_them(monkeypatch, tmp_path):
+    """An older release's run that crashed with Smart View's options changed: nothing can restore them now (the hidden
+    Excel is gone), so the doctor says what they were and where to set them by hand."""
+    home = _home(monkeypatch, tmp_path)
+    (home / "smartview_options_original.json").write_text(json.dumps({"104": 2, "109": True, "110": False}))
+    c = doctor._leftovers()
+    assert c.status == "WARN" and "crashed with Smart View's options changed" in c.detail
+    assert "which messages Smart View shows" in c.detail and "= 2" in c.detail and "= True" in c.detail
+    assert "Smart View ribbon > Options" in c.fix and "smartass doctor --fix" in c.fix
+
+
+def test_doctor_fix_says_each_file_before_it_removes_it(monkeypatch, tmp_path):
+    home = _home(monkeypatch, tmp_path)
+    opts = home / "smartview_options_original.json"
+    opts.write_text(json.dumps({"104": 2}))
+    bridge = home / "svbridge_0123456789ab.xlam"
+    bridge.write_bytes(b"")
+    said = []
+    removed = doctor.fix_leftovers(say=said.append)
+    assert sorted(removed) == sorted([opts, bridge]) and not opts.exists() and not bridge.exists()
+    assert said[0].startswith("Smart View options an older smartass left changed") and "= 2" in said[0]
+    assert said.index(f"removing {opts}") == 1 and f"removing the unused VBA bridge add-in {bridge}" in said
+    assert doctor._leftovers().status == "OK"
+
+
+def test_a_bridge_still_loaded_in_an_excel_is_left_and_said(monkeypatch, tmp_path):
+    home = _home(monkeypatch, tmp_path)
+    bridge = home / "svbridge_0123456789ab.xlam"
+    bridge.write_bytes(b"")
+    real_unlink = Path.unlink
+
+    def locked(self, *a, **k):
+        if self == bridge:
+            raise PermissionError(13, "in use")
+        return real_unlink(self, *a, **k)
+    monkeypatch.setattr(Path, "unlink", locked)
+    said = []
+    assert doctor.fix_leftovers(say=said.append) == [] and bridge.exists()
+    assert any("could not remove" in s and "close that Excel" in s for s in said)
+
+
+def test_the_old_svkit_homes_copy_is_reported_but_never_changed(monkeypatch, tmp_path):
+    from smartass.core import config
+    _home(monkeypatch, tmp_path / "home")
+    (tmp_path / "home").mkdir()
+    legacy = tmp_path / "svkit"
+    legacy.mkdir()
+    old = legacy / "smartview_options_original.json"
+    old.write_text(json.dumps({"109": True}))
+    monkeypatch.setattr(config, "LEGACY_HOME", legacy)
+    said = []
+    assert doctor._leftovers().status == "WARN" and doctor.fix_leftovers(say=said.append) == [] and old.exists()
+    assert any("left as it is" in s for s in said)
+
+
+def test_cli_doctor_fix_runs_the_fix_then_the_checks(monkeypatch, capsys):
+    from smartass.ops import cli
+    order = []
+    monkeypatch.setattr(doctor, "fix_leftovers", lambda: order.append("fix"))
+    monkeypatch.setattr(doctor, "run", lambda: order.append("run") or [])
+    assert cli.main(["doctor", "--fix"]) == 0 and order == ["fix", "run"]
 
 
 def test_the_com_writers_are_gone():

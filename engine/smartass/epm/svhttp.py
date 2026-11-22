@@ -527,3 +527,11 @@ def shared() -> SvHttp:
         if _shared is None:
             _shared = SvHttp(BearerTransport())
         return _shared
+
+
+def reset() -> None:
+    """The next grid gets a fresh route (new sessions, the data-source list read again): fin_status(restart=True)
+    without the relay. A request in flight finishes on the route it has."""
+    global _shared
+    with _shared_lock:
+        _shared = None

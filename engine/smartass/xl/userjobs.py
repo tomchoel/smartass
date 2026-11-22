@@ -1,65 +1,35 @@
 """Jobs in the USER's Excel (serverkit._call_user): each on an STA thread of its own, so parallel tool calls run at
 the same time in different Excels (work in ONE Excel takes turns: jobs.Turn); a deadline after which the job is given
 up on - never killed: the user's Excel is never closed; the objects a job made released on its own thread before its
-turns are freed (hostproc.ComThread, the 0.5.0 rule); every failure a readable text. Split from xl/host.py's
-ExcelHost.call(user_excel=True) in light-fast phase 2 Task 5, with the same behaviour; nothing here imports the
-engine's hidden Excel or starts it.
-
-Two things a user job may still hand to the hidden Excel, when it needs them (UserJobs.on_host and app, which reach
-it through serverkit.host): the Smart View bridge add-in's build when its file for the current sources is missing
-(target._attach_bridge -> instances.ensure_bridge_file), and a new analysis file when no Excel is running and no
-labelled seed exists (target._new_analysis_file). Task 6 replaces both."""
+turns are freed (hostproc.ComThread, the 0.5.0 rule); every failure a readable text. Split from the hidden Excel's
+host in light-fast phase 2 Task 5, with the same behaviour; the only runner of Excel jobs since Task 6 deleted the
+engine's own hidden Excel."""
 from __future__ import annotations
 
 import asyncio
 import logging
 import threading
 import time
-from typing import Any, Callable, Protocol
+from typing import Any, Callable
 
 import pywintypes
 
 from ..core import config
 from ..core.errors import HostError, HostTimeout, InputError
 from . import jobs
-from .hostproc import DEAD_HRESULTS, ComThread, is_busy, plain, retry_busy
+from .hostproc import DEAD_HRESULTS, ComThread, is_busy, plain
 
 log = logging.getLogger("smartview.host")
 RELEASE_WAIT_S = 10.0       # a job's objects not released this long after its answer: the job is given up on
 
 
-class JobHost(Protocol):
-    """What a user job's code (xl/target.py, xl/instances.py) uses of the object the runner hands it (h): Excel's
-    busy retry (com), and the hidden Excel's Application and thread for what it still makes there (app, on_host)."""
-
-    @property
-    def app(self) -> Any: ...
-
-    def com(self, call: Callable[[], Any], limit_s: float = 120, alive: Callable[[], Any] | None = None,
-            rejected: Callable[[float], Any] | None = None) -> Any: ...
-
-    def on_host(self, fn: Callable[[], Any], timeout: float | None = None) -> Any: ...
-
-
 class UserJobs:
-    """The runner of jobs in the user's Excel. hidden: how to reach the engine's hidden Excel (serverkit.host), asked
-    only when a job uses app or on_host - never when the runner is made or a job runs."""
+    """The runner of jobs in the user's Excel: each job is handed the runner itself (h), which records a timeout
+    (last_error) and an Excel that disconnected (_mark_dead)."""
 
-    def __init__(self, hidden: Callable[[], Any] | None = None):
-        self._hidden = hidden
+    def __init__(self):
         self.last_error: str | None = None
         self.restarts = 0                         # Excels that disconnected during a job (_mark_dead)
-
-    com = staticmethod(retry_busy)
-
-    @property
-    def app(self):
-        """The hidden Excel's Application, for the code on_host runs there (its own thread)."""
-        return self._hidden().app
-
-    def on_host(self, fn: Callable[[], Any], timeout: float | None = None):
-        """fn on the hidden Excel's thread, that Excel started if needed (HiddenExcel.on_host)."""
-        return self._hidden().on_host(fn, timeout)
 
     def _mark_dead(self, why: str) -> None:
         self.last_error = why
@@ -71,11 +41,11 @@ class UserJobs:
         return await run(self, fn, timeout, what)
 
 
-async def run(h, fn: Callable[[Any], Any], timeout: float | None, what: str, release_wait: float | None = None):
-    """fn(h) on an STA thread of its own, as a job in the USER's Excel. h: what the job is handed, which also records
-    a timeout (last_error) and an Excel that disconnected (_mark_dead) - a UserJobs, or an ExcelHost for its own
-    call(user_excel=True). On a timeout the blocked thread is abandoned (the job given up on: jobs.give_up), never
-    killed. release_wait: how long the release of a job's objects after its answer may take (RELEASE_WAIT_S)."""
+async def run(h: UserJobs, fn: Callable[[Any], Any], timeout: float | None, what: str):
+    """fn(h) on an STA thread of its own, as a job in the USER's Excel. h: the runner, which the job is handed and
+    which records a timeout (last_error) and an Excel that disconnected (_mark_dead). On a timeout the blocked thread
+    is abandoned (the job given up on: jobs.give_up), never killed. The release of a job's objects after its answer
+    may take RELEASE_WAIT_S."""
     timeout = timeout or config.USER_CALL_TIMEOUT_S
     started = threading.Event()
     released = threading.Event()
@@ -84,7 +54,7 @@ async def run(h, fn: Callable[[Any], Any], timeout: float | None, what: str, rel
     def job():
         started.set()
         jobs.bind_job(token)             # an abandoned job stops at its next COM call (token check)
-        return plain(fn(h), what)        # the hidden Excel only on demand (h.on_host): ~10 s + an SSO login
+        return plain(fn(h), what)
 
     def after():                         # on the job's thread, once the objects it made are released
         try:
@@ -105,8 +75,8 @@ async def run(h, fn: Callable[[Any], Any], timeout: float | None, what: str, rel
     while not started.is_set() and not fut.done():
         if time.monotonic() - q0 > config.QUEUE_TIMEOUT_S:
             fut.cancel()
-            raise HostError(f"Smart View is still busy with an earlier request after {config.QUEUE_TIMEOUT_S:.0f}s "
-                            f"(e.g. an atlas build); {what} was not started. Try again shortly.")
+            raise HostError(f"The job's thread did not start within {config.QUEUE_TIMEOUT_S:.0f}s; {what} was not "
+                            "started. Try again shortly.")
         await asyncio.sleep(0.1)
     try:
         try:
@@ -116,7 +86,7 @@ async def run(h, fn: Callable[[Any], Any], timeout: float | None, what: str, rel
             return wrapped.result()
         finally:
             if wrapped.done():           # it answered (a result or its error): now its release
-                _watch_release(released, what, token, RELEASE_WAIT_S if release_wait is None else release_wait)
+                _watch_release(released, what, token, RELEASE_WAIT_S)
     except asyncio.TimeoutError:
         jobs.give_up(token)              # only this job: it rolls back when that Excel frees up
         h.last_error = f"{what} exceeded {timeout:.0f}s in the user's Excel"

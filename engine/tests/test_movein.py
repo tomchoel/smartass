@@ -14,7 +14,7 @@ import fakexl
 from smartass.render.xlsx import Base, BuiltFile, FormulaBlock, TableSpec
 from smartass.render.xlsx_charts import LabelFix
 from smartass.xl import jobs, movein, sheets
-from smartass.xl.host import HostError, InputError
+from smartass.core.errors import HostError, InputError
 from smartass.xl.inproc import runner
 from smartass.xl.inproc.batch import Batch
 from smartass.xl.inproc.runner import BatchError

@@ -14,7 +14,7 @@ import pytest
 from smartass.epm import epmhttp, oauth, rest, svhttp
 from smartass.epm.grid import Axis
 from smartass.knowledge import atlas
-from smartass.xl.host import InputError
+from smartass.core.errors import InputError
 
 POD = "https://plan1.example"
 

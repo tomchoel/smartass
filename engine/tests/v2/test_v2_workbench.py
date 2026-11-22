@@ -103,7 +103,7 @@ def test_snapshot_passes_on_book_notes(monkeypatch):
 def test_row_kind_aliases_map_before_validation(monkeypatch):
     import pytest
 
-    from smartass.xl.host import InputError
+    from smartass.core.errors import InputError
     from smartass.xl.workbench import books, fmt
     assert fmt._expand_rows({"1": "heading", "2-3": "subtotal", "4": "Total", "5": "line"}) == {
         1: "section", 2: "sum", 3: "sum", 4: "grand", 5: "line"}

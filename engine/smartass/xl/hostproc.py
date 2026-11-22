@@ -1,5 +1,7 @@
-"""Our own Excel's processes (verified by PID + creation time + '-Embedding') and the STA COM thread a job runs on -
-the user's Excel's jobs (xl/userjobs.py) and the engine's hidden Excel (xl/hidden.py, xl/host.py) alike."""
+"""The STA COM thread a job in the user's Excel runs on (ComThread, _run_job: xl/userjobs.py), Excel's busy retry
+(retry_busy, is_busy), the plain-data rule for a job's result (plain), and the leftovers of an older release: the
+registry of the hidden Excels its engine started (_PidRegistry, config.PID_FILE), swept once at server start
+(sweep_leftovers) - a pid is killed only when the registry proves it ours (pid + creation time + '-Embedding')."""
 from __future__ import annotations
 
 import concurrent.futures as cf
@@ -63,10 +65,6 @@ def retry_busy(call: Callable[[], Any], limit_s: float = 120, alive: Callable[[]
             rejected(waited)
 
 
-def _excel_pids() -> set[int]:
-    return {p.pid for p in psutil.process_iter(["name"]) if (p.info["name"] or "").lower() == "excel.exe"}
-
-
 def _is_ours(pid: int, ctime: float) -> bool:
     try:
         p = psutil.Process(pid)
@@ -94,14 +92,15 @@ def kill_ours(pid: int, ctime: float) -> bool:
 
 
 class _PidRegistry:
-    """Persist the Excel PIDs we started, with the owning server process, so a restarted server cleans up only
-    orphans whose owner is gone - never the live Excel of another running server (e.g. a test harness)."""
+    """The Excel PIDs an older release's engine started, with the server process that owned each: a sweep kills only
+    orphans whose owner is gone - never the live Excel of another running server (an older release's, still up).
+    Nothing adds to it any more (Task 6 deleted the hidden Excel)."""
 
     LOCK_WAIT_S = 10.0
     _tlock = threading.RLock()                     # threads of this process; the byte lock covers other processes
 
-    def __init__(self, path=config.PID_FILE):
-        self.path = path
+    def __init__(self, path=None):
+        self.path = path or config.PID_FILE
 
     @contextlib.contextmanager
     def _locked(self):
@@ -165,17 +164,8 @@ class _PidRegistry:
         except psutil.Error:
             return False
 
-    def add(self, pid: int, ctime: float) -> None:
-        me = psutil.Process()
-        with self._locked():
-            keep = [i for i in self.load() if psutil.pid_exists(i["pid"])]
-            self._write(keep + [{"pid": pid, "ctime": ctime, "owner": me.pid, "owner_ctime": me.create_time()}])
-
-    def remove(self, pid: int) -> None:
-        with self._locked():
-            self._write([i for i in self.load() if i["pid"] != pid])
-
     def sweep(self) -> list[int]:
+        """Kill the orphans (owner gone, the pid still ours); the file keeps the entries of a live owner only."""
         killed, keep = [], []
         with self._locked():
             for i in self.load():
@@ -187,6 +177,26 @@ class _PidRegistry:
         return killed
 
 
+def sweep_leftovers(path=None) -> list[int]:
+    """Once at server start (serverkit.lifespan): while an older release's pid registry exists, its orphaned hidden
+    Excels are killed (exactly as that release's own start did); the file is removed once no entry is left - an
+    entry of a live older server stays, and instances.engine_excel_pids keeps excluding its Excel. Never raises."""
+    reg = _PidRegistry(path or config.PID_FILE)
+    if not reg.path.exists():
+        return []
+    try:
+        killed = reg.sweep()
+        if killed:
+            log.warning("killed the hidden Excel(s) %s an older smartass left running", killed)
+        if not reg.load():
+            reg.path.unlink(missing_ok=True)
+            reg.path.with_name(reg.path.name + ".lock").unlink(missing_ok=True)
+        return killed
+    except Exception:   # noqa: BLE001 - a leftover never stops the server
+        log.warning("the sweep of an older release's hidden Excels failed", exc_info=True)
+        return []
+
+
 class ComThread(threading.Thread):
     """Single STA thread that executes callables in order and pumps messages while idle.
 
@@ -195,9 +205,9 @@ class ComThread(threading.Thread):
     it: for ever, when that Excel has stopped responding (live, 21.11.2026: stack A, between one job's thread and the
     next one's). After each job (_run_job) its outcome goes to the caller first, then the objects it made are released
     here, and only then does the job's 'after' run (userjobs.run: its turns in the user's Excel released; a release
-    that does not return is watched: userjobs._watch_release, host._watch_release for the hidden Excel's).
+    that does not return is watched: userjobs._watch_release).
     What is enforced:
-    - the job's result holds no COM object (host.plain), and the frames its error carries are cleared here (_frames,
+    - the job's result holds no COM object (plain), and the frames its error carries are cleared here (_frames,
       _clear): their locals go here, not where the error is read;
     - the garbage collector runs at a job's end only when no other COM job is running in this process (_running), so
       a job's end never releases a cycle a job still running on another thread made. A job that stays blocked (given
@@ -216,8 +226,6 @@ class ComThread(threading.Thread):
         super().__init__(daemon=True, name=name)
         self.q: queue.Queue = queue.Queue()
         self.busy_since: float | None = None
-        self.job_no = 0                           # counts started jobs: tells a reset that the blocked job has ended
-        self.waiting_reset = False                # the current job sits in ExcelHost._wait_reset (not blocked)
 
     def run(self):
         pythoncom.CoInitializeEx(pythoncom.COINIT_APARTMENTTHREADED)
@@ -232,7 +240,6 @@ class ComThread(threading.Thread):
                     break
                 if not fut.set_running_or_notify_cancel():
                     continue
-                self.job_no += 1
                 self.busy_since = time.monotonic()
                 after = rest[0] if rest else None
                 try:
@@ -345,9 +352,3 @@ def _clear(frames: list) -> None:
         except RuntimeError:
             pass
 
-
-def on_host_thread() -> bool:
-    """True on an ExcelHost's own COM thread (named 'excel-com'): work there must not wait on threads that call
-    on_host, or it deadlocks."""
-    t = threading.current_thread()
-    return isinstance(t, ComThread) and t.name == "excel-com"

@@ -74,7 +74,7 @@ def test_com_retries_a_busy_excel_then_says_so_in_words(monkeypatch):
 
     from smartass.xl import hostproc
     from smartass.xl import jobs
-    from smartass.xl.host import HostError
+    from smartass.core.errors import HostError
     monkeypatch.setattr(hostproc.time, "sleep", lambda s: None)
     rejected = pywintypes.com_error(-2147418111, "Call was rejected by callee.", None, None)
     recalc = pywintypes.com_error(-2147352567, "Exception occurred.", (0, None, None, None, 0, -2146777998), None)

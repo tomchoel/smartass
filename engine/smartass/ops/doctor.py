@@ -1,5 +1,6 @@
 """smartass doctor: cheap health checks (starts neither Excel nor a browser). Each check gives OK / WARN / FAIL,
-a detail and the fix. Used by the CLI, fin_status and the HTTP /health endpoint."""
+a detail and the fix. Used by the CLI, fin_status and the HTTP /health endpoint. `smartass doctor --fix` removes
+what an older release left behind (leftovers, fix_leftovers) - each file said before it goes."""
 from __future__ import annotations
 
 import contextlib
@@ -46,15 +47,6 @@ def _excel() -> Check:
         return Check("excel", "OK", config.EXCEL_EXE)
     return Check("excel", "FAIL", f"not found: {config.EXCEL_EXE}",
                  "Install desktop Excel (Microsoft 365), or set paths.excel_exe in config.toml.")
-
-
-def _smartview() -> Check:
-    from ..epm import sso
-    v = sso.smartview_version()
-    if v:
-        return Check("smartview", "OK", f"{v} ({config.SMARTVIEW_DLL})")
-    return Check("smartview", "FAIL", f"HsAddin.dll not found at {config.SMARTVIEW_DLL}",
-                 "Install Oracle Smart View (Company Portal), or set paths.smartview_dll in config.toml.")
 
 
 def _epm(timeout: float = 5) -> Check:
@@ -198,13 +190,14 @@ def _read_hkcu(path: str, name: str):
 
 
 def _smartview_startup(read=_read_hkcu) -> Check:
-    """Smart View settings that slow every Excel start (found 2026-11-03): the extension update check at Office
-    start signs in to EPM ~20 s after Excel opens, and that login window blocks all automation of that Excel;
-    diagnostics capture slows Smart View and keeps sign-in cookies in plain text."""
+    """Smart View settings of the user's Excel (smartass uses no Smart View, but it stays installed there; found
+    2026-11-03): the extension update check at Office start opens Smart View's Login ~20 s after Excel opens, and a
+    job is refused while that Login is open in an Excel (xl/dialogs.py: COM into it blocks); diagnostics capture slows
+    Smart View and keeps sign-in cookies in plain text."""
     problems, fixes = [], []
     if str(read(r"Software\Oracle\SmartView\extensions", "CheckOnStartup")) == "1":
-        problems.append("Smart View checks for extension updates at every Excel start (an EPM login window "
-                        "~20 s after Excel opens, which blocks smartass)")
+        problems.append("Smart View checks for extension updates at every Excel start (its Login opens ~20 s after "
+                        "Excel opens, and smartass does not touch that Excel until it is signed in or closed)")
         fixes.append("Smart View > Options > Extensions: untick 'Check for updates when Microsoft Office starts'")
     if str(read(r"Software\Hyperion Solutions\HyperionSmartView\Options", "Profile")) == "1":
         problems.append("Smart View diagnostics capture is on (slower; sign-in cookies stored in plain text)")
@@ -215,26 +208,85 @@ def _smartview_startup(read=_read_hkcu) -> Check:
     return Check("smartview_startup", "OK", "no login at Excel start-up; diagnostics capture off")
 
 
-_VBOM_KEY = r"Software\Microsoft\Office\16.0\Excel\Security"
-_VBOM_POLICY = r"Software\Policies\Microsoft\Office\16.0\Excel\Security"
+# Smart View's options an older release (up to 0.6.0) changed while its hidden Excel ran, and restored at its shutdown
+# from this file; the file left behind means a run crashed with them changed.
+SV_OPTIONS_FILE = "smartview_options_original.json"
+SV_OPTIONS = {"104": "which messages Smart View shows (Options > Advanced: Display Messages / Log Message Display)",
+              "109": "whether Smart View's panel opens when Excel starts (Options > Advanced)",
+              "110": "Smart View's comment dialog on refresh (Options > Advanced)"}
 
 
-def _vba_access(read=_read_hkcu) -> Check:
-    """Our hidden Excel loads its VBA bridge through wb.VBProject, which Excel refuses unless 'Trust access to the
-    VBA project object model' is on (HKCU ...\\Excel\\Security AccessVBOM = 1; a policy value wins)."""
-    policy = read(_VBOM_POLICY, "AccessVBOM")
-    value = policy if policy is not None else read(_VBOM_KEY, "AccessVBOM")
-    if str(value) == "1":
-        return Check("vba_access", "OK", "Excel trusts access to the VBA project object model")
-    where = "set by policy" if policy is not None else f"HKCU\\{_VBOM_KEY} AccessVBOM = {value}"
-    return Check("vba_access", "FAIL", f"Excel blocks access to the VBA project object model ({where}); the "
-                 "Smart View bridge cannot load",
-                 "Excel > File > Options > Trust Center > Trust Center Settings > Macro Settings: tick 'Trust "
-                 "access to the VBA project object model' (close Excel first; a policy value needs IT).")
+def _options_files() -> list[Path]:
+    """The left-behind copies of Smart View's options: the home's, and the old svkit home's (read only)."""
+    out = [config.SVKIT / SV_OPTIONS_FILE]
+    if config.LEGACY_HOME:
+        out.append(config.LEGACY_HOME / SV_OPTIONS_FILE)
+    return [p for p in out if p.exists()]
 
 
-CHECKS = (_config, _excel, _smartview, _smartview_startup, _vba_access, _epm, _oauth, _atlas, _knowledge, _output,
-          _http, _update)
+def _bridge_files() -> list[Path]:
+    """The VBA bridge add-ins an older release built (svbridge_<hash>.xlam): nothing uses them any more."""
+    return sorted(config.SVKIT.glob("svbridge*.xlam"))
+
+
+def _recorded(p: Path) -> str:
+    try:
+        rec = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return "unreadable"
+    return "; ".join(f"{SV_OPTIONS.get(str(k), f'option {k}')} = {v!r}" for k, v in rec.items()) or "empty"
+
+
+def _leftovers() -> Check:
+    """What an older release (up to 0.6.0, with its hidden Excel and VBA bridge) left in the home: a copy of Smart
+    View's options that a crashed run could not put back (nothing can restore them now: set them by hand), and the
+    bridge add-ins it built."""
+    opts, bridges = _options_files(), _bridge_files()
+    if not opts and not bridges:
+        return Check("leftovers", "OK", "nothing an older release left behind")
+    said, fixes = [], []
+    for p in opts:
+        said.append(f"an older smartass crashed with Smart View's options changed; the originals recorded in {p}: "
+                    f"{_recorded(p)}")
+        fixes.append("set those back by hand in Excel: Smart View ribbon > Options (close the other Excels first)")
+    if bridges:
+        said.append(f"{len(bridges)} VBA bridge add-in file(s) of an older release in {config.SVKIT} (unused)")
+    fixes.append("then run `smartass doctor --fix` to remove the left-behind files")
+    return Check("leftovers", "WARN", "; ".join(said), "; ".join(fixes))
+
+
+def fix_leftovers(say=print) -> list[Path]:
+    """`smartass doctor --fix`: the left-behind files removed, each said first (the options file after its recorded
+    values; the old svkit home's copy is never changed); a file in use (a bridge still loaded in an Excel) stays and
+    is said so. Returns the files removed."""
+    removed = []
+    for p in _options_files():
+        say(f"Smart View options an older smartass left changed (set them by hand in Smart View > Options): "
+            f"{_recorded(p)}")
+        if config.LEGACY_HOME and p.parent == config.LEGACY_HOME:
+            say(f"left as it is (the old svkit home is never changed): {p}")
+            continue
+        say(f"removing {p}")
+        removed += _remove(p, say)
+    for p in _bridge_files():
+        say(f"removing the unused VBA bridge add-in {p}")
+        removed += _remove(p, say)
+    if not removed:
+        say("nothing removed")
+    return removed
+
+
+def _remove(p: Path, say) -> list[Path]:
+    try:
+        p.unlink()
+        return [p]
+    except OSError as e:
+        say(f"could not remove {p} ({e.strerror or e}); it may be loaded in an Excel - close that Excel and run "
+            "`smartass doctor --fix` again")
+        return []
+
+
+CHECKS = (_config, _excel, _smartview_startup, _epm, _oauth, _atlas, _knowledge, _output, _http, _update, _leftovers)
 
 
 def run(include_http: bool = True) -> list[Check]:
@@ -276,9 +328,7 @@ def _versions() -> dict:
             pk[name] = version(name)
         except PackageNotFoundError:
             pk[name] = None
-    from ..epm import sso
-    return {"smartass": __version__, "python": sys.version, "os": platform.platform(),
-            "smartview": sso.smartview_version(), "packages": pk}
+    return {"smartass": __version__, "python": sys.version, "os": platform.platform(), "packages": pk}
 
 
 def _tail(p: Path, max_bytes: int = 2_000_000) -> str:

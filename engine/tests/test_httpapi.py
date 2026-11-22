@@ -7,7 +7,7 @@ import urllib.request
 import pytest
 
 from smartass.ops import httpapi
-from smartass.xl.host import HostError, InputError
+from smartass.core.errors import HostError, InputError
 
 SECRET = "s" * 32
 

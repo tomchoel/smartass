@@ -4,43 +4,52 @@ guard could not start Excel or open a connection: what is tested is that the gua
 import asyncio
 import socket
 import urllib.request
-from types import SimpleNamespace
 
 import pytest
 
 
 @pytest.fixture
 def below(monkeypatch):
-    """Sentinels under the guarded start points: the COM instance creation DispatchEx calls, process starts, and the
-    SSO watcher's first step (its list of running watchers) and its kill - so a broken guard of ensure_global_watcher
-    could not even reach the code that kills a stale watcher (sso.py)."""
+    """Sentinels under the guarded start points: the COM instance creation Dispatch / DispatchEx call, process starts
+    and process kills - so a broken guard could not start Excel or end a process."""
     import pythoncom
     import subprocess
 
-    from smartass.epm import sso
+    import psutil
+    import win32api
     reached = []
 
     def sentinel(*args, **kwargs):
         reached.append(args[:1])
         raise RuntimeError("reached below the guard")
     monkeypatch.setattr(pythoncom, "CoCreateInstanceEx", sentinel)
+    monkeypatch.setattr(pythoncom, "CoCreateInstance", sentinel)
     monkeypatch.setattr(subprocess, "Popen", sentinel)
-    monkeypatch.setattr(sso, "global_watcher_pids", sentinel)
-    monkeypatch.setattr(sso, "_heartbeat_age", sentinel)
-    monkeypatch.setattr(sso, "psutil", SimpleNamespace(Process=sentinel, Error=Exception))   # sso's own psutil
+    monkeypatch.setattr(win32api, "TerminateProcess", sentinel)
+    monkeypatch.setattr(psutil, "Process", sentinel)
     return reached
 
 
 def test_excel_cannot_be_dispatched_and_the_users_excel_cannot_be_launched(below):
-    from smartass.xl import host, target
-    with pytest.raises(AssertionError, match="never start Excel"):
-        host.wc.DispatchEx("Excel.Application")
+    import win32com.client as wc
+
+    from smartass.xl import target
+    for start in (wc.Dispatch, wc.DispatchEx):
+        with pytest.raises(AssertionError, match="never start Excel"):
+            start("Excel.Application")
     with pytest.raises(AssertionError, match="never start Excel"):
         target._launch_excel("x.xlsx")
-    with pytest.raises(AssertionError, match="never start Excel"):
-        host.sso.ensure_global_watcher()
-    with pytest.raises(AssertionError, match="never start Excel"):
-        host.ExcelHost._start(SimpleNamespace())                 # the hidden Excel's own start (run_build's route)
+    assert below == []
+
+
+def test_no_process_can_be_killed(below):
+    """The sweep of an older release's hidden Excels and setup's stop of its SSO watcher are the engine's only kills."""
+    from smartass.ops import setup_user
+    from smartass.xl import hostproc
+    with pytest.raises(AssertionError, match="never kill a process"):
+        hostproc.kill_ours(4242, 1.0)
+    with pytest.raises(AssertionError, match="never kill a process"):
+        setup_user.stop_old_watcher(found=lambda: [(4242, True)])
     assert below == []
 
 

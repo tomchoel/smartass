@@ -37,8 +37,10 @@ def _no_excel_no_network():
     """The suite never starts Excel and never reaches the network, whatever a default is (2026-11-22: a test reached
     atlas_build.run_build's hidden-Excel route and started the engine's Excel). From the first test's setup to the end
     of the session - every test and every fixture, module- and session-scoped ones included - the lowest start points
-    in this process fail with an AssertionError: DispatchEx of Excel.Application (xl/host.py, the hidden Excel), the
-    SSO dialog watcher that start launches (epm/sso.py), the user's Excel (xl/target._launch_excel); a socket connect,
+    in this process fail with an AssertionError: Dispatch / DispatchEx of Excel.Application (win32com: the engine has
+    no Excel of its own since Task 6, so any is a fault), the user's Excel (xl/target._launch_excel, the one place the
+    engine starts Excel), a kill of a process (xl/hostproc.kill_ours: an older release's hidden Excel at the sweep;
+    ops/setup_user._kill: an older release's SSO watcher); a socket connect,
     a name lookup or an asyncio connect (the Windows proactor's ConnectEx too) to anything but this machine. A test
     that fakes one of them sets its own fake over this one (monkeypatch restores the guard after it). Out of reach:
     CHILD PROCESSES a test starts (tests/stdio_util.py's server, the scripts some tests run) carry none of these
@@ -47,11 +49,22 @@ def _no_excel_no_network():
     import asyncio
     import socket
 
-    from smartass.xl import host, target
+    import win32com.client as wc
+
+    from smartass.ops import setup_user
+    from smartass.xl import hostproc, target
 
     def no_excel(*args, **kwargs):
         raise AssertionError("the test suite must never start Excel")
-    real_dispatch_ex = host.wc.DispatchEx
+
+    def no_kill(*args, **kwargs):
+        raise AssertionError("the test suite must never kill a process")
+    real_dispatch, real_dispatch_ex = wc.Dispatch, wc.DispatchEx
+
+    def dispatch(progid, *args, **kwargs):
+        if "excel" in str(progid).lower():
+            no_excel()
+        return real_dispatch(progid, *args, **kwargs)
 
     def dispatch_ex(progid, *args, **kwargs):
         if "excel" in str(progid).lower():
@@ -72,9 +85,11 @@ def _no_excel_no_network():
     def getaddrinfo(host_, *args, **kwargs):
         return real_getaddrinfo(host_, *args, **kwargs) if _loopback(host_) else no_network()
     mp = pytest.MonkeyPatch()
-    mp.setattr(host.wc, "DispatchEx", dispatch_ex)
-    mp.setattr(host.sso, "ensure_global_watcher", no_excel)
+    mp.setattr(wc, "Dispatch", dispatch)
+    mp.setattr(wc, "DispatchEx", dispatch_ex)
     mp.setattr(target, "_launch_excel", no_excel)
+    mp.setattr(hostproc, "kill_ours", no_kill)
+    mp.setattr(setup_user, "_kill", no_kill)
     mp.setattr(socket.socket, "connect", connect)
     mp.setattr(socket.socket, "connect_ex", connect_ex)
     mp.setattr(socket, "getaddrinfo", getaddrinfo)

@@ -19,8 +19,8 @@ workbook weighs on every case alike. The warm-up has its own row and is not in t
 with its error (amounts masked), never hidden; when the warm-up and the first measured run both fail the bench stops
 (the cause is the environment, not a case). A case that guard_chart refuses (no chart block) runs the same steps as
 server._new_question minus that one guard, still logged as fin_analyze, and its row is marked '(no chart block)';
-the case files are not changed. Never saves or closes a workbook of the user's; at the end only the
-engine's own hidden Excel is shut down, as the server's lifespan does.
+the case files are not changed. Never saves or closes a workbook of the user's (the engine has no Excel of its own
+to shut down).
 """
 import argparse
 import asyncio
@@ -237,12 +237,6 @@ async def _build(kit) -> str:
         return f"unknown ({scrub(e)})"
 
 
-def _shutdown(kit) -> None:
-    """As the server's lifespan ends: the engine's own hidden Excel only."""
-    if kit._host is not None:
-        kit._host.shutdown()
-
-
 async def bench(cases: list[dict], rounds: int) -> int:
     from smartass import server
     from smartass.core import serverkit as kit
@@ -260,32 +254,29 @@ async def bench(cases: list[dict], rounds: int) -> int:
     start = datetime.now().astimezone().replace(microsecond=0)
     runs: list[dict] = []
     blocked = False
-    try:
-        warm = await _run(tool, cases[0], "new", start)
-        _progress("warm-up", warm)
-        for n in range(1, rounds + 1):
-            for case in cases:
-                rec = await _run(tool, case, "session", start, n)
-                runs.append(rec)
-                _progress(f"round {n}", rec)
-                blocked = len(runs) == 1 and not warm["ok"] and not rec["ok"]
-                if blocked:
-                    break
+    warm = await _run(tool, cases[0], "new", start)
+    _progress("warm-up", warm)
+    for n in range(1, rounds + 1):
+        for case in cases:
+            rec = await _run(tool, case, "session", start, n)
+            runs.append(rec)
+            _progress(f"round {n}", rec)
+            blocked = len(runs) == 1 and not warm["ok"] and not rec["ok"]
             if blocked:
                 break
-        print(f"\n## Baseline v2 answers, {start:%Y-%m-%d}\n")
-        print(f"Engine {__version__}; {rounds} rounds of {len(cases)} cases; medians over the "
-              "ok rounds.\n")
-        print(table(warm, runs))
-        print("\n### Per round (ok runs without a lines block)\n")
-        print(round_table(runs))
-        print("\n### Per round (ok runs with a lines block)\n")
-        print(round_table(runs, lines=True))
-        print("\n### Stages\n")
-        print(stage_table(runs), flush=True)
-        print(f"\nExcel: {await _build(kit)}", flush=True)
-    finally:
-        _shutdown(kit)
+        if blocked:
+            break
+    print(f"\n## Baseline v2 answers, {start:%Y-%m-%d}\n")
+    print(f"Engine {__version__}; {rounds} rounds of {len(cases)} cases; medians over the "
+          "ok rounds.\n")
+    print(table(warm, runs))
+    print("\n### Per round (ok runs without a lines block)\n")
+    print(round_table(runs))
+    print("\n### Per round (ok runs with a lines block)\n")
+    print(round_table(runs, lines=True))
+    print("\n### Stages\n")
+    print(stage_table(runs), flush=True)
+    print(f"\nExcel: {await _build(kit)}", flush=True)
     if blocked:
         print("\nSTOPPED: the warm-up and the first measured run both failed (see the errors above).")
         return 2

@@ -24,6 +24,7 @@ def main(argv: list[str] | None = None) -> int:
     d = sub.add_parser("doctor", help="health checks (cheap)")
     d.add_argument("--bundle", action="store_true", help="zip logs, redacted config and versions for the maintainer")
     d.add_argument("--json", action="store_true")
+    d.add_argument("--fix", action="store_true", help="remove what an older release left behind (each file said first)")
     sub.add_parser("serve", help="localhost HTTP API (started at login)")
     sub.add_parser("setup", help="per-user setup (run by installer\\install.ps1)")
     u = sub.add_parser("update", help="install the release from the release folder")
@@ -40,8 +41,6 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--cube", action="append", choices=["FinMax", "FinLite", "FinPlan"],
                    help="only this cube (repeatable; default all three)")
     b.add_argument("--dimension", action="append", help="only this dimension (repeatable; no purge of the cube)")
-    b.add_argument("--excel", action="store_true",
-                   help="the old route: Smart View's zoom in the engine's own hidden Excel (a few minutes)")
     ac = at_sub.add_parser("cards", help="derive behaviour cards from data (read-only, about 2 minutes)")
     ac.add_argument("--cube", action="append", choices=["FinMax", "FinLite", "FinPlan"],
                     help="only this cube (repeatable; default all three; FinLite copies FinMax)")
@@ -81,6 +80,8 @@ def main(argv: list[str] | None = None) -> int:
         if a.bundle:
             print(doctor.bundle())
             return 0
+        if a.fix:
+            doctor.fix_leftovers()
         rs = doctor.run()
         print(json.dumps(doctor.as_dict(rs), indent=2) if a.json else doctor.to_text(rs))
         return 1 if doctor.overall(rs) == "FAIL" else 0
@@ -113,7 +114,7 @@ def main(argv: list[str] | None = None) -> int:
             failed = [d for d in done if d.get("error")]
             print(f"cards: {len(done) - len(failed)} derived, {len(failed)} failed ({config.ATLAS_DB})")
             return 1 if failed else 0
-        done = atlas_build.run_build(a.cube, a.dimension, excel=a.excel)
+        done = atlas_build.run_build(a.cube, a.dimension)
         failed = [d for d in done if d.get("error")]
         skipped = [d for d in done if d.get("skipped")]
         built = len(done) - len(failed) - len(skipped)

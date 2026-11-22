@@ -14,7 +14,7 @@ from smartass.knowledge import atlas
 from smartass.epm import epmhttp, oauth, svhttp, svxml
 from smartass.core import config
 from smartass.epm.grid import Axis
-from smartass.xl.host import InputError
+from smartass.core.errors import InputError
 
 
 def _store(db, conn, dims, error=None):

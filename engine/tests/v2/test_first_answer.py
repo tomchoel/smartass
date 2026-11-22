@@ -22,7 +22,7 @@ from smartass.core.timing import BATCH_PREFIX
 from smartass.render import xlsx
 from smartass.xl import jobs, movein, sources, styling
 from smartass.xl import target as xltarget
-from smartass.xl.host import HostError
+from smartass.core.errors import HostError
 from smartass.xl.inproc import runner
 from smartass.xl.inproc.runner import BatchError
 

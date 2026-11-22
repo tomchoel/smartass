@@ -7,7 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from . import jobs, target
-from ..epm.grid import Axis, Layout, parse
+from ..epm.grid import Layout
 from ..core.errors import InputError
 
 # ------------------------------------------------------------------ question numbering and sheets
@@ -281,37 +281,6 @@ def load_answer(t: target.Target, q: int) -> dict | None:
 def stored_questions(t: target.Target) -> list[int]:
     """The questions with a stored answer spec v1 (drawn by fin_analyze), ascending."""
     return sorted(q for q, a in _stored_specs(t).items() if a["spec"].get("version") == 1)
-
-
-def load_pulls(t: target.Target, q: int) -> dict:
-    """Rebuild Pull objects of question q from the hidden metadata + the live data sheets."""
-    from ..epm.ops import _used_values
-    if not _sheet_exists(t, META_SHEET):
-        return {}
-    ws = jobs.com(lambda: t.wb.Worksheets(META_SHEET))
-    vals = jobs.com(lambda: ws.UsedRange.Value)
-    vals = vals if isinstance(vals, tuple) else ((vals,),)
-    out = {}
-    for row in vals:
-        sheet = row[0]
-        if not isinstance(sheet, str) or not sheet.startswith(f"Q{q} ") or not _sheet_exists(t, sheet):
-            continue
-        meta = json.loads("".join(str(x) for x in row[1:] if x))
-        lay = Layout([tuple(x) for x in meta["pov"]], [Axis(d, m) for d, m in meta["rows"]],
-                     [Axis(d, m) for d, m in meta["cols"]])
-        parsed = parse(lay, _used_values(jobs.com(lambda: t.wb.Worksheets(sheet))), False, False)
-        parsed.pov_problems[:0] = meta.get("warnings", [])
-        out[sheet] = _make_pull(sheet, meta["connection"], lay, parsed, 0.0)
-    return out
-
-
-def _make_pull(name, connection, lay, parsed, secs) -> "Pull":
-    row_map = {tuple(combo): tuple(parsed.row_labels[i]) for i, combo in enumerate(lay.row_tuples)
-               if i < len(parsed.row_labels)}
-    col_map = {tuple(combo): tuple(str(x).strip() if x is not None else "" for x in parsed.col_labels[j])
-               for j, combo in enumerate(lay.col_tuples)}
-    positional = len(set(row_map.values())) < len(row_map) or len(set(col_map.values())) < len(col_map)
-    return Pull(name, connection, lay, parsed, secs, row_map, col_map, positional)
 
 
 def lookup_formula(p: Pull, row_members: list[str], col_members: list[str]) -> str:

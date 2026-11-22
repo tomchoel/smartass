@@ -1,12 +1,12 @@
-"""Light-fast phase 2 Task 5: nothing on a tool call's path constructs, imports or starts the engine's hidden Excel.
+"""Light-fast phase 2 Task 5 (and Task 6, which deleted it): nothing on a tool call's path starts an Excel of its own.
 Every tool that works in the user's Excel - fin_analyze (a new question and a follow-up), fin_drill, fin_refresh,
 fin_critic, xl_snapshot / xl_revert / xl_tidy (the workbench) - runs its job through the real runner
 (serverkit._call_user -> xl/userjobs.UserJobs, a thread per job) and resolves its workbook through the real
 xl/target.resolve_target (the user's Excel found, its turn taken, made ready): the only code of a job
 that uses the object the runner hands it (h). The Excel is a small fake; what a job draws after its workbook is found
 is replaced (it never uses h). fin_status, with and without restart, starts nothing either. conftest makes a real
-Excel start impossible; this pins that the code does not even try: HiddenExcel._ensure_started, ExcelHost._start,
-ExcelHost() and serverkit.host() all fail the test.
+Excel start impossible; this pins that the code does not even try: a launch of Excel fails the test (the user's
+Excel is launched only when none is running, which these tests do not set up - except the cold path at the end).
 
 Task 6 replaced the two paths that still handed a job's work to the hidden Excel: the bridge add-in is gone, and a new
 analysis file with no Excel running and no labelled seed is built without Excel (both pinned at the end)."""
@@ -24,8 +24,7 @@ from v2util import facts, spec_dict
 from smartass import exceljob, server
 from smartass.core import config, serverkit
 from smartass.core.errors import HostError
-from smartass.epm import sso
-from smartass.xl import hidden, host, instances, sheets
+from smartass.xl import instances, sheets
 from smartass.xl import target as xltarget
 
 PID = 4_190_303                                   # no such process: no window, no dialog, a turn file of its own
@@ -74,21 +73,17 @@ class FakeApp:
 
 
 class Reached:
-    """Every way into the hidden Excel, each recorded and failed."""
+    """Every way a job could start an Excel (a launch: the only one left), recorded and failed."""
 
     def __init__(self, monkeypatch):
         self.calls: list[str] = []
-        for owner, name in ((hidden.HiddenExcel, "_ensure_started"), (host.ExcelHost, "_start"),
-                            (host.ExcelHost, "__init__")):
-            monkeypatch.setattr(owner, name, self._fail(f"{owner.__name__}.{name}"))
-        monkeypatch.setattr(serverkit, "host", self._fail("serverkit.host()"))
-        monkeypatch.setattr(serverkit, "_host", None)
+        monkeypatch.setattr(xltarget, "_launch_excel", self._fail("target._launch_excel"))
         monkeypatch.setattr(serverkit, "_users", None)
 
     def _fail(self, what):
         def f(*a, **k):
             self.calls.append(what)
-            raise AssertionError(f"a tool call reached the hidden Excel: {what}")
+            raise AssertionError(f"a tool call started an Excel: {what}")
         return f
 
 
@@ -101,7 +96,6 @@ def excel(monkeypatch, tmp_path):
     path.write_bytes(b"")
     app = FakeApp(FakeBook(path))
     monkeypatch.setattr(instances, "excel_instances", lambda *a, **k: [instances.XlInstance(PID, 1, [path.name], app)])
-    monkeypatch.setattr(sso, "ensure_global_watcher", lambda: None)
     reached = Reached(monkeypatch)
     threads: list[str] = []
     targets: list[str] = []
@@ -133,7 +127,7 @@ def excel(monkeypatch, tmp_path):
 
 
 def _ran_in_the_user_excel(excel, n: int, what: str) -> None:
-    assert excel.reached.calls == [] and serverkit._host is None
+    assert excel.reached.calls == []
     assert excel.threads == [f"user-job-{what}"] * n
     assert excel.targets == [str(excel.path)] * n
     assert excel.app.runs == []                                       # no macro: the bridge add-in is gone
@@ -187,7 +181,7 @@ def test_the_workbench_tools_run_in_the_user_excel_without_the_hidden_one(excel,
         return jobs.com(lambda: {"ok": True})
     monkeypatch.setattr(workbench, name, job)
     assert asyncio.run(getattr(server, tool)(**args)) == {"ok": True}
-    assert ran == [f"user-job-{tool}"] and excel.reached.calls == [] and serverkit._host is None
+    assert ran == [f"user-job-{tool}"] and excel.reached.calls == []
 
 
 @pytest.mark.parametrize("restart", [False, True])
@@ -196,7 +190,7 @@ def test_fin_status_starts_no_excel_to_report(excel, monkeypatch, restart):
     _status_base(monkeypatch)
     monkeypatch.delenv("SVKIT_PROXY", raising=False)
     out = asyncio.run(server.fin_status(restart=restart))
-    assert out["version"] == server.__version__ and excel.reached.calls == [] and serverkit._host is None
+    assert out["version"] == server.__version__ and excel.reached.calls == []
 
 
 def test_the_bridge_add_in_is_gone_a_job_attaches_nothing_to_the_user_excel(excel):
@@ -207,7 +201,7 @@ def test_the_bridge_add_in_is_gone_a_job_attaches_nothing_to_the_user_excel(exce
     asyncio.run(server.fin_analyze(spec=AnalysisSpec.model_validate(spec_dict()), target="active"))
     assert excel.reached.calls == [] and excel.app.runs == [] and [b.Name for b in excel.app.books] == ["Answer.xlsx"]
     assert not hasattr(instances, "ensure_bridge_file") and not hasattr(xltarget, "_attach_bridge")
-    assert not hasattr(xltarget.Target, "run") and not list(config.SVKIT.glob("svbridge*.xlam"))
+    assert not hasattr(xltarget.Target, "run") and not list(config.SVKIT.glob("*.xlam"))
 
 
 def test_a_new_workbook_with_no_excel_running_and_no_seed_is_built_and_opened_in_the_users_excel(excel, monkeypatch,
@@ -230,12 +224,12 @@ def test_a_new_workbook_with_no_excel_running_and_no_seed_is_built_and_opened_in
     def launch(path):
         launched.append(Path(path))
         raise HostError("launched the user's Excel")            # stop there: the rest waits for that Excel
-    monkeypatch.setattr(xltarget, "_launch_excel", launch)
+    monkeypatch.setattr(xltarget, "_launch_excel", launch)               # the user's Excel, launched on the file
     from smartass.model.spec import AnalysisSpec
     from mcp.server.mcpserver.exceptions import ToolError
     with pytest.raises(ToolError, match="launched the user's Excel"):
         asyncio.run(server.fin_analyze(spec=AnalysisSpec.model_validate(spec_dict()), target="new"))
-    assert launched == [tmp_path / "Q.xlsx"] and excel.reached.calls == [] and serverkit._host is None
+    assert launched == [tmp_path / "Q.xlsx"]
     with zipfile.ZipFile(launched[0]) as z:
         assert "MSIP_Label_f604_Enabled" in z.read("docProps/custom.xml").decode()
         assert "Sources" in z.read("xl/workbook.xml").decode()

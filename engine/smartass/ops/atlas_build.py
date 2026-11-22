@@ -1,19 +1,17 @@
 """`smartass atlas build` / `smartass atlas status`: (re)build the local atlas (every dimension tree of FinMax,
-FinLite and FinPlan). Two routes, both read-only against EPM: over the token session (build_rest: Planning REST's Get
-Member, epm/members.py; about 10 s for both pods, no Excel) and, until the old route is deleted, Smart View
-zoom-all-levels in the engine's own hidden Excel (build; a few minutes). The REST build writes a new file and swaps it
-in only when every dimension was built (build_into). Run it when `fin_status` or `smartass doctor` says the atlas is
+FinLite and FinPlan), read-only against EPM, over the token session (build_rest: Planning REST's Get Member,
+epm/members.py; about 10 s for both pods, no Excel). The build writes a new file and swaps it in only when every
+dimension was built (build_into). Run it when `fin_status` or `smartass doctor` says the atlas is
 stale and the release folder has no fresher copy (`smartass setup` copies the monthly one)."""
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import os
 import sqlite3
 import tempfile
 import time
 from pathlib import Path
-from typing import Awaitable, Callable
+from typing import Callable
 
 from ..core import config
 from ..knowledge import atlas
@@ -24,51 +22,6 @@ SWAP_TIMEOUT_S = 30.0          # build_into waits at most this long for another 
 # whole path, no pattern): skipped, its old rows kept, said in the result, the CLI's last line and `atlas status`.
 NEW_DIMENSION = "dimension {dim} is new in EPM; this release cannot read it - update smartass"
 NOT_SIGNED_IN = "not signed in to EPM - run `smartass login`"   # why a REST build without a token replaced nothing
-DUMP_TIMEOUT_S = 600
-
-Call = Callable[..., Awaitable]
-
-
-async def build(call: Call, connections: list[str] | None = None, dimensions: list[str] | None = None,
-                db=None, progress: Callable[[str], None] = print) -> list[dict]:
-    """call(fn, timeout=..., what=...) runs fn(host) in the hidden Excel (ExcelHost.call). A full build of a cube
-    (no `dimensions`) purges it first, so renamed or dropped dimensions do not linger. Errors are recorded per
-    dimension and never stop the build."""
-    from ..epm import ops
-    from ..xl.host import HostError, InputError
-    own = db is None
-    db = db or atlas.connect()
-    done: list[dict] = []
-    try:
-        for conn in connections or CUBES:
-            try:
-                dims = await call(lambda h, c=conn: ops.dimensions(h, c), what=f"atlas {conn} dimensions")
-            except (HostError, InputError) as e:
-                done.append({"connection": conn, "error": str(e)})
-                progress(f"{conn}: {e}")
-                continue
-            wanted = {ops.canon_dim(conn, d) for d in dimensions} if dimensions else None
-            if wanted is None:
-                atlas.purge(db, conn)
-            for dim in dims:
-                if wanted and dim not in wanted:
-                    continue
-                t0 = time.monotonic()
-                try:
-                    members = await call(lambda h, c=conn, d=dim: ops.dump_dimension(h, c, d),
-                                         timeout=DUMP_TIMEOUT_S, what=f"atlas {conn}/{dim}")
-                    atlas.store(db, conn, dim, members, time.monotonic() - t0)
-                    done.append({"connection": conn, "dimension": dim, "members": len(members),
-                                 "seconds": round(time.monotonic() - t0, 1)})
-                    progress(f"{conn}/{dim}: {len(members)} members")
-                except (HostError, InputError) as e:
-                    atlas.store(db, conn, dim, [], time.monotonic() - t0, str(e))
-                    done.append({"connection": conn, "dimension": dim, "error": str(e)})
-                    progress(f"{conn}/{dim}: {e}")
-    finally:
-        if own:
-            db.close()
-    return done
 
 
 def _canon(name: str) -> str:
@@ -77,7 +30,8 @@ def _canon(name: str) -> str:
 
 def build_rest(source, connections: list[str] | None = None, dimensions: list[str] | None = None, db=None,
                progress: Callable[[str], None] = print) -> list[dict]:
-    """build's shape over the token session. source: members.Source (dimensions(conn) -> [(REST name, atlas name)],
+    """The atlas over the token session: [{connection, dimension, members, seconds} | {..., error} | {..., skipped}].
+    source: members.Source (dimensions(conn) -> [(REST name, atlas name)],
     tree(conn, REST name) -> Get Member's tree). `dimensions`: any spelling of a dimension (its atlas name, its REST
     name, with or without 'All ' and spaces). A full build of a cube purges it first, except a dimension EPM lists
     that the allowlist cannot read: that one is skipped ({"skipped": NEW_DIMENSION}), its rows kept. Errors
@@ -244,30 +198,14 @@ def _copy(src_path: Path, dst_path: Path) -> None:
         src.backup(dst, progress=waiting)
 
 
-def run_build(connections: list[str] | None = None, dimensions: list[str] | None = None, excel: bool = False
-              ) -> list[dict]:
+def run_build(connections: list[str] | None = None, dimensions: list[str] | None = None) -> list[dict]:
     """The CLI path (and `smartass knowledge refresh`'s): over the token session into a new file swapped in when
-    complete (build_into) - the default since the gate (docs/audit/2026-11-22-atlas-rest.md); excel: the old route,
-    its own hidden Excel for the build, closed at the end (Smart View options restored; deleted in Task 6). A full
-    build (no `dimensions`) then derives the behaviour cards of the cubes built (cards_after_build) - after the
-    swap."""
-    if not excel:
-        from ..epm import members, oauth
-        done, replaced = build_into(config.ATLAS_DB, lambda db: build_rest(
-            members.Source(), connections, dimensions, db), refused={oauth.NotSignedIn: NOT_SIGNED_IN})
-        if replaced and not dimensions:
-            cards_after_build(done)
-        return done
-    from ..xl.host import ExcelHost
-
-    async def main():
-        h = ExcelHost(visible=False)
-        try:
-            return await build(h.call, connections, dimensions)
-        finally:
-            await asyncio.to_thread(h.shutdown)
-    done = asyncio.run(main())
-    if not dimensions:
+    complete (build_into; docs/audit/2026-11-22-atlas-rest.md). A full build (no `dimensions`) then derives the
+    behaviour cards of the cubes built (cards_after_build) - after the swap."""
+    from ..epm import members, oauth
+    done, replaced = build_into(config.ATLAS_DB, lambda db: build_rest(
+        members.Source(), connections, dimensions, db), refused={oauth.NotSignedIn: NOT_SIGNED_IN})
+    if replaced and not dimensions:
         cards_after_build(done)
     return done
 

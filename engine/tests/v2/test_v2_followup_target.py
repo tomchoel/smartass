@@ -133,7 +133,7 @@ def test_critic_takes_an_explicit_target(home, monkeypatch):
 
 
 def test_critic_on_a_closed_unsaved_book_falls_back_to_its_stored_answer(home, monkeypatch):
-    from smartass.xl.host import InputError
+    from smartass.core.errors import InputError
     _store_brief("Book1")
     _store_brief("C:/x.xlsx", q=1)
     _store_brief("Book1", q=2)
@@ -144,7 +144,7 @@ def test_critic_on_a_closed_unsaved_book_falls_back_to_its_stored_answer(home, m
 
 
 def test_critic_explicit_target_that_is_not_open_is_an_error(home, monkeypatch):
-    from smartass.xl.host import InputError
+    from smartass.core.errors import InputError
     _store_brief("Book1")
     _critic_wire(monkeypatch, fail=InputError("Give an absolute path for target (got 'Book7')"))
     with pytest.raises(InputError):

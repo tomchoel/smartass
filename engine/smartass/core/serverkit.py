@@ -1,17 +1,15 @@
-"""Server helpers shared by the v2 MCP server: the lifespan (keeping the EPM sign-ins fresh, closing the hidden
-Excel), the tool guard (any exception -> readable text with one next step), tool annotations, the hidden-Excel host
-(made on first use) and the user-Excel job call with progress notes (xl/userjobs.py). Lifted from v1 server.py;
-nothing here imports a tool module."""
+"""Server helpers shared by the v2 MCP server: the lifespan (keeping the EPM sign-ins fresh; the leftovers of an older
+release swept once), the tool guard (any exception -> readable text with one next step), tool annotations and the
+user-Excel job call with progress notes (xl/userjobs.py). Lifted from v1 server.py; nothing here imports a tool
+module."""
 from __future__ import annotations
 
 import contextvars
 import logging
 import re
-import threading
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
@@ -20,9 +18,6 @@ from . import config, logsetup, runlog
 from .errors import HostError, InputError
 from ..epm import oauth
 from ..xl.userjobs import UserJobs
-
-if TYPE_CHECKING:
-    from ..xl.host import ExcelHost
 
 logsetup.configure(config.SERVER_LOG)
 logsetup.add_secret(config.HTTP_SECRET)
@@ -35,26 +30,14 @@ LOCAL = ToolAnnotations(read_only_hint=True, open_world_hint=False)        # loc
 WRITE = ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=False, open_world_hint=True)
 ADMIN = ToolAnnotations(read_only_hint=False, destructive_hint=False, open_world_hint=False)
 
-_host: ExcelHost | None = None
-_host_lock = threading.Lock()             # host() is also reached from job threads (UserJobs.on_host / app)
 _users: UserJobs | None = None
 
 
-def host() -> ExcelHost:
-    """The engine's hidden Excel (xl/host.py), made on first use: nothing on a tool call's path imports it before."""
-    global _host
-    with _host_lock:                      # two jobs asking at once must not make two hidden Excels
-        if _host is None:
-            from ..xl.host import ExcelHost
-            _host = ExcelHost(visible=False)
-        return _host
-
-
 def user_jobs() -> UserJobs:
-    """The runner of jobs in the user's Excel. It reaches the hidden Excel (host) only when a job asks for it."""
+    """The runner of jobs in the user's Excel (one per server; fin_status(restart=True) makes a fresh one)."""
     global _users
     if _users is None:
-        _users = UserJobs(hidden=lambda: host())
+        _users = UserJobs()
     return _users
 
 
@@ -67,14 +50,17 @@ def _keep_signed_in() -> None:
         log.info("oauth keep-fresh not started: %s", str(e)[:200])
 
 
+def _sweep_leftovers() -> None:
+    """The hidden Excels an older release's engine left running, swept once (xl/hostproc.sweep_leftovers)."""
+    from ..xl import hostproc
+    hostproc.sweep_leftovers()
+
+
 @asynccontextmanager
 async def lifespan(_server):
+    _sweep_leftovers()
     _keep_signed_in()
-    try:
-        yield {}
-    finally:
-        if _host is not None:
-            _host.shutdown()
+    yield {}
 
 
 def _err(e: Exception) -> ToolError:
@@ -86,7 +72,7 @@ ESCALATE = ("if it repeats, call fin_status (in a terminal: `smartass doctor`) a
 GENERIC_NEXT = "Retry once; " + ESCALATE
 NEXT_STEP = {
     "InputError": "Correct the input named above and call the tool again.",
-    "HostError": "Call fin_status(restart=True) (restarts the server and its hidden Smart View Excel), then retry; " + ESCALATE,
+    "HostError": "Call fin_status(restart=True) (restarts the server), then retry; " + ESCALATE,
     "DrillError": "Retry the drill once; " + ESCALATE,
     "CellTooWide": "Narrow the cell (e.g. child entities) and drill again.",
     "TimeoutError": "Retry with a smaller request (fewer members or periods).",
@@ -202,14 +188,6 @@ def _with_progress(fn):
                 t.notify = None
                 t._ticker(False)
     return job
-
-
-async def _call(fn, timeout: float | None = None, what: str = "call"):
-    """host().call with every failure surfaced as a readable ToolError (with the advice for its class)."""
-    try:
-        return await host().call(_with_progress(fn), timeout=timeout, what=what)
-    except (HostError, InputError, ToolError) as e:
-        raise _err(e) from None
 
 
 def _is_our_analysis_file(path: str) -> bool:
