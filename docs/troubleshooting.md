@@ -138,6 +138,13 @@ every dimension was built. `smartass atlas status` shows the last attempt as `la
 - **Fix:** Run `smartass update` when a release that knows it is out; nothing else is needed meanwhile.
 - **An older smartass on the same atlas:** an installed release before 0.7.0 can still rebuild this atlas file. This
   release then ignores the real member names of the dimensions it rebuilt until its own next `atlas build`.
+- **Symptom:** `WARN  atlas  ...\atlas.db (N days old); no dimension has EPM's real member names` (or "K of N
+  dimensions have no ...").
+- **Cause:** the atlas was built before 0.7.0 (or an older release rebuilt those dimensions since). It works, but
+  without the strict member check over Planning REST: when a grid comes over the second route, smartass cannot check
+  that EPM answered for the member it asked for, in the rare case where one member's key is another member's name.
+- **Fix:** Rebuild once with `smartass atlas build`. `smartass setup` never replaces an atlas that has the real
+  names with a release copy that has none; it says "atlas: local copy kept" and why.
 
 ## output
 

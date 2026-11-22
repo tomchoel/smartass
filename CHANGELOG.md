@@ -58,16 +58,25 @@
   members is counted too). The golden test set passed 9 of 9 with either atlas, and 18 771 of 18 782 members of 460
   stored questions resolve the same with either atlas. docs/audit/2026-11-22-atlas-rest.md.
 - Both gates ran a last time on 22.11.2026 (12:27-12:44, commit 8049f2a) and passed; each audit records that run
-  under "Final run". The changes after it touch how secrets are scrubbed from texts, how the workbooks of an Excel
-  smartass has just started are read, the test guards and the docs: not how numbers or members are fetched, and not
-  the atlas build. The two gate scripts were then deleted; their results stay in the audits.
+  under "Final run". That run had every part of the atlas gate, and of the grid gate the grids: the 21 real grids, a
+  grid split over a lowered cell budget, the two left-out probes and the 6 requests with a member EPM no longer has.
+  The order proof (4 of 4) and the split of 466 637 cells last ran before, on 22.11 at commit d2cf8a4. The grid
+  comparison ran once more at commit 2b0c693, after the round that changed the scrub of texts, and gave the same
+  lines. The last fix round then changed how the first route's error is sorted (from Oracle's own text) and how a
+  number over Planning REST is read (only a plain number), besides the scrub, setup, the doctor and the docs; it did
+  not change the atlas build. The routes comparison was run again after the final fix round; the audit records it.
+  <!-- Task 9: the controller's routes run after this round; it records the result in
+  docs/audit/2026-11-21-rest-vs-provider.md. --> The two gate scripts were deleted after the run at 8049f2a; their
+  results stay in the audits.
 
 **What a PC needs now**
 
 - Desktop Excel, for the answers.
 - `[oauth]` in `%LOCALAPPDATA%\smartass\config.toml` and one `smartass login`, as in 0.6.0. The same scope
   covers Planning REST.
-- The atlas: copied from the release by `smartass setup`, or `smartass atlas build`.
+- An atlas that 0.7.0 built: run `smartass atlas build` once, or use a release copy that 0.7.0 built (`smartass
+  setup` copies it). An older atlas works, but without the strict member check over Planning REST (see "Upgrading
+  from 0.6.0").
 
 **What a PC no longer needs**
 
@@ -80,6 +89,19 @@
   crashed run could not put back, with the values to set by hand in Smart View's Options, and the unused bridge
   add-in files; `smartass doctor --fix` removes them, naming each first. At server start smartass ends an Excel an
   older release started hidden, only when that release's own record proves it.
+
+**Upgrading from 0.6.0**
+
+1. Get the new code: `git pull`, then `uv sync` in `engine`.
+2. Run `smartass setup`. It removes the old sign-in watcher's shortcut from the Startup folder and stops the watcher
+   if it runs.
+3. Run `smartass doctor --fix`. It names each file an older release left before it removes it.
+4. Build the atlas once with 0.7.0: `smartass atlas build` (copy `atlas.db` and `knowledge.db` in
+   `%LOCALAPPDATA%\smartass` aside first). Until then the strict member check over Planning REST is off: when a
+   grid comes over the second route, smartass cannot check that EPM answered for the member it asked for, in the rare
+   case where one member's key is another member's name in EPM. `smartass doctor` warns until it is done; then run
+   `smartass doctor` again and do what it says for `knowledge`.
+5. Reconnect every open Claude Code session (`/mcp`), so each one runs 0.7.0.
 
 **Known limits / open items**
 
@@ -98,8 +120,21 @@
   before the first step there: that answer then waits until its 10-minute limit.
 - If the stored look of a new workbook has an unusual column width, every first workbook made with no Excel open is
   a plain one, and none is kept as the copy for the next one.
-- Not yet checked live in your Excel: the first workbook when no Excel is open, and `scripts/check_insert.py` after
-  its rewrite.
+- The second route finds EPM's server through the first route's list of data sources. When that list cannot be
+  read, the second route cannot run either; the reply then says why.
+- Over Planning REST numbers come as text. Under your EPM preferences they equalled the first route's cell for cell.
+  Under a preference with "." as the thousands separator this is not proven: a cell like "5.000" would read as 5,
+  while other such texts stop that grid with an error.
+- Only the reading of an answer from EPM has an overall time limit. A server that sends the start of its answer very
+  slowly is limited only by the time each read may take.
+- Two answers that both start an Excel at the same moment can pick the same new Excel (as in 0.6.0).
+- An Excel smartass starts is one of the smartass server's processes. The Excel task pane's Stop ends it with them,
+  and so may anything that ends the server's processes from outside. smartass's own stop of a server that does not
+  exit never ends an Excel.
+- `scripts/check_insert.py`, rewritten, passed 188 of 188 checks in an Excel of its own on 22.11.2026 (commit
+  8049f2a). Not yet run in your Excel on this release: `scripts/check_followups.py` (answers and follow-ups, both ways
+  a job runs), `scripts/bench_answers.py` and the first workbook when no Excel is open. The steps before the merge
+  run them, each with your go.
 
 **Notes**
 
@@ -129,6 +164,18 @@
   (`HKCU\Software\Oracle\SmartView\extensions\CheckOnStartup`), without COM; a setting made elsewhere (a policy)
   reads as not set. A first workbook built in the stored base of a new workbook is kept as the seed (a temp file,
   then a replace); one built without it is not.
+- The last fix round (the two final reviews): the relay (`run_server.py` `end_tree`) ends a server that does not
+  exit 60 s after it was told to stop with its processes, never an `excel.exe` or what runs under it; a first
+  workbook Excel opened read-only with no Excel open is a clear error naming the file, as in a running Excel; the
+  provider's error is classified on its raw `<desc>` (`SvXmlError.raw`, never shown) and only what is shown is
+  scrubbed; Smart View's read-only check refuses a body with CDATA, a comment, a DOCTYPE or a processing
+  instruction; the REST warning's quoted error passes the scrub; the scrub needs a credential's shape after `Basic`
+  and a schemeless `Authorization:`, and catches `session ID: <value>`, `client secret: <value>`, HTML-escaped JSON
+  pairs and a value with `%` after a cookie's name, `SID` or `SESSION_ID`; `epm/rest.py` reads a cell only as a
+  plain number (digits, one `.`, an exponent) and fails the grid on anything else, naming its shape, never its
+  value; `smartass setup` keeps a local atlas with a trusted side table over a release copy without one, and the
+  doctor's `atlas` check warns on an atlas without one (`knowledge/atlas.trust`); the test suite's guards raise a
+  `BaseException` and a recorded violation fails the run.
 - Texts reworded: an Excel that closed or cut the connection during a job ("Excel closed or disconnected during
   ...; smartass never closes or restarts your Excel. Check that Excel is open, then ask again."), and the advice to
   restart (`fin_status(restart=True)`: what it resets now).

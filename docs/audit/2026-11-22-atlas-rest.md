@@ -287,3 +287,8 @@ name check or the atlas build (`epm/members.py`, `ops/atlas_build.py`, `knowledg
 as before. After this run both gate scripts were deleted (`scripts/compare_grid_routes.py`,
 `scripts/compare_atlas.py`); this file keeps their results and the "Final run" of
 docs/audit/2026-11-21-rest-vs-provider.md those of the grid comparison.
+
+Task 9, the final fix round, touches neither the atlas build (`ops/atlas_build.py`, `epm/members.py`) nor how the
+atlas is written: `knowledge/atlas.py` gains `trust`, a read-only count of the dimensions with a trusted side table,
+which `smartass setup` uses to keep such an atlas over a release copy without one and the doctor to warn on an atlas
+without one. It does touch the grid routes (docs/audit/2026-11-21-rest-vs-provider.md, after its "Final run").

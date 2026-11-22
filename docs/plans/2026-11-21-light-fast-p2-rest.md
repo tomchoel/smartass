@@ -196,5 +196,16 @@ What differs from the tasks above. The ledger of every ruling is
   then deleted the scripts. Task 7 also removed the resolve's unused runner parameter that Task 6 left.
 - **Task 8, not in the plan:** the last review findings (the scrub's narrower named keys, `_open_path`'s busy guard,
   the launch guard's aliases, one retry helper), the docs corrections and the final gate figures.
+- **Task 9, not in the plan: the final fix round** of the two whole-branch reviews: the relay's stop of a server
+  spares an Excel and what runs under it; a cold first workbook opened read-only is a clear error; the provider's
+  error is classified on its raw text; Smart View's read-only check refuses CDATA and comments; the REST warning's
+  quoted error is scrubbed; the scrub narrower on ordinary text and catching the shapes still found; REST reads only
+  plain numbers; setup keeps an atlas with real names over a release copy without them, and the doctor warns on an
+  atlas without them; the test guards raise a `BaseException`; `scripts/probe_bearer.py` deleted; the docs (an
+  "Upgrading from 0.6.0" section, the open items). The controller runs the routes comparison once more after it.
+- **Live steps still owed (before the merge, each with the owner's go):** Task 5's `scripts/check_followups.py`
+  through both executors in the owner's Excel, `scripts/bench_answers.py`, and Task 6's live smoke with the first
+  workbook when no Excel is open (the cold path). `scripts/check_insert.py` ran in an Excel of its own (188 of 188
+  checks, 22.11.2026 at 8049f2a).
 - **Not done in this phase:** the plan's "Also to test" (Oracle's newer agent-facing REST endpoints of 26.04 /
   26.11): no probe was run, and nothing depends on them.

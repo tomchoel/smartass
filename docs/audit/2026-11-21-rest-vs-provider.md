@@ -236,3 +236,17 @@ name check or the atlas build (`epm/members.py`, `ops/atlas_build.py`, `knowledg
 as before. After this run both gate scripts were deleted (`scripts/compare_grid_routes.py`,
 `scripts/compare_atlas.py`); this file keeps their results and the "Final run" of docs/audit/2026-11-22-atlas-rest.md
 those of the atlas gate.
+
+The routes part was run once more by the controller at 2b0c693 (Task 8's head; 22.11.2026 13:34-13:41, read-only,
+without Excel, the scripts taken from the commit before their deletion): passed, the same lines (all equal, both
+left-out probes OK, the 6 wrong-member requests: 4 refused, 2 left out; exit 0), 426.2 s.
+
+Task 9, the final fix round after both final reviews, DOES touch the fetch routes: `epm/svhttp.py` (the provider's
+error is classified on its raw `<desc>`, which `epm/svxml.py` keeps beside the scrubbed text; and comments only),
+`epm/rest.py` (a cell is read only as a plain number: any other text fails the grid), `epm/svxml.py` (the read-only
+check refuses CDATA, a comment, a DOCTYPE or a processing instruction), the scrub (`core/logsetup.py`: narrower on
+ordinary text after `Basic` and `Authorization:`, and the `%` values after a cookie's name, `SID` or `SESSION_ID`
+that Task 8's change stopped catching are caught again) and `pipeline.py` (the REST warning's quoted error is
+scrubbed); not `data/provider.py`, `epm/epmhttp.py`, the name check or the atlas build. The routes comparison was
+run again after the final fix round; the audit records it.
+<!-- Task 9: the controller records here the run of the routes part at Task 9's head (date, head, result). -->

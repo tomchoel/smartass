@@ -221,9 +221,11 @@ never stops the rest.
   redirect is never followed; a 401 takes one new token and the request goes once more (the grids, Planning REST and the
   atlas's reads: a gate answer, HTTP 301, 302, 303, 307, 401 or 403); an answer is read up to 64 MB; a token, a session
   key, a cookie or a URL query is never in a log line, an error text or a reply (`drillcore.redact` on every URL shown;
-  `logsetup.redact` on every log line, reply text and run-log line). The rules, one by one:
+  `logsetup.redact` on every log line, tool error and run-log line, the provider's own error text and the two reply
+  warnings that quote an engine's error). The rules, one by one:
   - `POST /HyperionPlanning/SmartView`: the grids' provider route. No query, `Content-Type: text/xml` only, a body
-    of at most 16 MB that `svxml.check_read_only` admits (the provider XML's read requests only).
+    of at most 16 MB that `svxml.check_read_only` admits (the provider XML's read requests only; no CDATA, comment,
+    DOCTYPE or processing instruction, which the provider's parser would read otherwise than the check).
   - The drill's own four (`drill_token`): `GET /aif/ui/model/applications/servicetype` (no query);
     `GET .../FdmeeMain.jsp` with `FORMAT=SUI`, `module=aif.drilldown` and the link's own parameters;
     `GET /aif/ui/model/view` with `page=DRILL_THROUGH`; `POST /aif/ui/model/drilldown/getData` with `limit` and
@@ -244,7 +246,10 @@ never stops the rest.
   Planning REST with the same token, but not for an error REST would meet too (`svhttp.NoFallback`). A member EPM
   refuses is left out of a grid when its axis has others, with one warning and one caveat that every total with it
   is INCOMPLETE (at most 3 per request); a refused POV member or only member stops that grid: it is not fetched, the
-  reply warns naming the member, and the answer is drawn without its numbers. No Excel is asked for a grid.
+  reply warns naming the member, and the answer is drawn without its numbers. No Excel is asked for a grid. A REST
+  cell is read only as a plain number (digits, one `.`, an exponent); any other text stops that grid with an error
+  that names its shape, never its value. The first route's error is classified on the provider's raw text; only what
+  is shown is scrubbed.
 - **Atlas** (`atlas.db`, `knowledge/atlas.py`): `smartass atlas build` (`ops/atlas_build.py`) reads every
   dimension tree with Get Member (`epm/members.py`; live 8-12 s of Get Member for both pods and 20-24 s for the
   build in all over four gate runs, the last 8.8 s and 23.6 s: docs/audit/2026-11-22-atlas-rest.md) into a NEW file,
@@ -261,7 +266,9 @@ never stops the rest.
   side rows are then stale, and this release ignores them until its next build. With a trusted side table the REST
   engine accepts only a real name of the key it asked for. EPM's account type and time balance are stored, not used
   (the behaviour cards still derive theirs from data). A full build then derives the cards (`atlas cards`,
-  read-only grids). `smartass setup` copies the monthly atlas from the release folder.
+  read-only grids). `smartass setup` copies the monthly atlas from the release folder, but never over a local atlas
+  with a trusted side table when the copy has none; the doctor's `atlas` check warns on an atlas without one
+  (`knowledge/atlas.trust`): the strict check is off there until the next build.
 - **Your Excel** (`xl/userjobs.py` `UserJobs`): every job in it (an answer, a follow-up, a drill's sheets, the
   `xl_*` tools) runs on an STA thread of its own, so jobs in different Excels run side by side; work in one Excel
   takes turns (a lock file per Excel process). A job has a deadline (`SV_USER_CALL_TIMEOUT`, 600 s); a job given
