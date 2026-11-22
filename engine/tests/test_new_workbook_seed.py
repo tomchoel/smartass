@@ -291,3 +291,31 @@ def test_a_failed_seed_write_leaves_no_temp_file(env, monkeypatch):
     p = target._new_analysis_file("A")
     assert p.exists() and not config.NEW_WORKBOOK_SEED.exists()
     assert sorted(x.name for x in env.iterdir()) == ["out"]
+
+
+# ---- Task 9 (final review B, M4): the cold first workbook gets open_new's read-only check
+
+@pytest.mark.parametrize("read_only", [True, False])
+def test_a_cold_first_workbook_excel_opened_read_only_is_a_clear_error(env, monkeypatch, read_only):
+    """Excel opens a file whose sensitivity label it does not know read-only, and its Save then writes nothing,
+    without an error (live, 20.11.2026): as open_new refuses that, so does the cold route - never an answer 'saved'
+    with nothing written."""
+    _xlsx(config.NEW_WORKBOOK_SEED, CUSTOM)
+    Builds(monkeypatch, made=lambda p: pytest.fail("a seed with our label is copied"))
+
+    class Book:
+        ReadOnly = read_only
+    opened = []
+
+    def open_path(path, excels, insts=None):
+        opened.append(path)
+        return target.Target("app", Book(), 7, 70)
+    monkeypatch.setattr(target, "_open_path", open_path)
+    if read_only:
+        with pytest.raises(target.HostError, match="read-only") as e:
+            target._new_target("A", [], set())
+        assert opened[0].name in str(e.value) and str(opened[0]) in str(e.value)
+        assert opened[0].exists()                         # nothing closed or deleted: the text says what to do
+    else:
+        t = target._new_target("A", [], set())
+        assert t.created and t.new and t.wb.ReadOnly is False

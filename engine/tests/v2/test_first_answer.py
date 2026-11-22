@@ -7,6 +7,7 @@ workbook without saving and deletes the file. All on the fake Excel (the COM exe
 from __future__ import annotations
 
 import dataclasses
+import types
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -176,7 +177,7 @@ def test_every_route_of_a_new_workbook_marks_its_target_new(new_book, monkeypatc
         made = new_book.folder / "made.xlsx"
         monkeypatch.setattr(xltarget, "_new_analysis_file", lambda title: made)
         monkeypatch.setattr(xltarget, "_open_path", lambda path, excels, *a: xltarget.Target(
-            app=new_book.app, wb=None, pid=8, hwnd=0))
+            app=new_book.app, wb=types.SimpleNamespace(ReadOnly=False), pid=8, hwnd=0))   # Excel opened it to write
         t = xltarget._new_target("T", [])
     else:
         monkeypatch.setattr(xltarget, "_save_new", lambda app, wb, title: new_book.folder / "added.xlsx")

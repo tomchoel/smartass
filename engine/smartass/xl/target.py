@@ -203,8 +203,13 @@ def _new_target(title: str, excels, known: set[int] | None = None, build_new: bo
             choice, wb = _spawn_excel(tpl, known or set(), OPEN_TIMEOUT_S)   # a cold Excel; its look stores the base
         spawned = True
     if choice is None:                                # no Excel at all: the file is made without Excel, /x opens it
-        t = _open_path(_new_analysis_file(title), excels)
+        path = _new_analysis_file(title)
+        t = _open_path(path, excels)
         t.created = t.new = True
+        if jobs.com(lambda: t.wb.ReadOnly):           # as open_new: Excel's Save of it would write nothing, silently
+            raise HostError(f"Excel opened the new workbook {path.name} read-only (sensitivity label?), so it could "
+                            f"not save the answer. Nothing was closed: close it in Excel without saving, delete {path}, "
+                            "and ask again.")
         return t
     pid, hwnd, app = choice
     if wb is None and build_new:

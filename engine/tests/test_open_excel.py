@@ -23,6 +23,8 @@ class FakeProc:
 
 
 class FakeWb:
+    ReadOnly = False                                  # as Excel's workbook: opened for writing
+
     def __init__(self, full_name):
         self.FullName = full_name
         self.Name = Path(full_name).name
