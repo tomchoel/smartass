@@ -1,5 +1,7 @@
 """Record a run's grids (and drills) to a local JSON file and replay them without EPM: the test set's offline
-mode. Files live outside git (%LOCALAPPDATA%\smartass\v2\testset): they hold real financial data."""
+mode. Files live outside git (%LOCALAPPDATA%\smartass\v2\testset): they hold real financial data. A run where a
+member was left out over Planning REST (FetchResult.dropped) is never stored: its totals are incomplete, and a
+recording keeps facts only - a golden made from it would hold the partial total without the warning."""
 from __future__ import annotations
 
 import dataclasses
@@ -20,11 +22,16 @@ def _key(req: GridRequest) -> str:
     return json.dumps(d, sort_keys=True)
 
 
+class LeftOut(ValueError):
+    """The run left a member out over Planning REST: it is not stored (record the case again once it is fixed)."""
+
+
 class RecordingProvider:
     def __init__(self, primary):
         self.primary = primary
         self.grids: dict[str, list[dict]] = {}
         self.closed = None
+        self.dropped: list[tuple[str, str, str]] = []    # (cube, dimension, member) left out over REST in this run
 
     def closed_months(self):
         self.closed = self.primary.closed_months()
@@ -33,9 +40,16 @@ class RecordingProvider:
     def fetch(self, req):
         res = self.primary.fetch(req)
         self.grids[_key(req)] = [dataclasses.asdict(f) for f in res.facts]
+        self.dropped += [d for d in getattr(res, "dropped", ()) if d not in self.dropped]
         return res
 
     def save(self, path: Path) -> None:
+        """The recording to path; LeftOut (nothing written) when the run left a member out."""
+        if self.dropped:
+            raise LeftOut(f"{len(self.dropped)} member(s) left out over Planning REST in this run ("
+                          + ", ".join(" ".join(d) for d in self.dropped) + "): their totals are incomplete, so the run "
+                          "is not stored - check the member or rebuild the atlas (`smartass atlas build`), then record "
+                          "again")
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         closed = {k: list(v) for k, v in (self.closed or {}).items()}

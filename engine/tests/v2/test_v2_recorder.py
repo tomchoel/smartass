@@ -29,6 +29,17 @@ def test_replay_of_a_missing_grid_is_an_error_not_a_failed_grid(tmp_path):
         prepare(spec_dict(), resolver(), ReplayProvider(tmp_path / "nogrids.json"))
 
 
+def test_a_run_where_a_member_was_left_out_is_never_stored(tmp_path):
+    """A member left out over Planning REST (FetchResult.dropped) makes every total with it incomplete: such a run is
+    refused, not stored - a golden could otherwise hold the partial total without the warning that says so."""
+    from test_v2_left_out import LeavesOut
+    rec = RecordingProvider(LeavesOut(facts(), "ac.C60"))
+    prepare(spec_dict(), resolver(), rec)
+    with pytest.raises(ValueError, match="left out over Planning REST.*FinMax All Accounts ac.C60.*record again"):
+        rec.save(tmp_path / "b02.json")
+    assert not (tmp_path / "b02.json").exists()
+
+
 def test_line_sets_round_trip(tmp_path):
     ls = {"b0": LineSet("b0", [{"AMOUNT": -1.0, "AP_CUSTOMER_NAME": "X"}], ["AMOUNT", "AP_CUSTOMER_NAME"],
                         cube_value=-1.0, cell={"All Accounts": "ac.C60"})}
