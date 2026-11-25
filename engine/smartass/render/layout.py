@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from ..model.analyze import Result
 from ..model.blocks.common import GAP, MAT_ABS, MAT_PCT, MAT_SMALL, MARK_CODES, ck, group_start
 from ..model.expr import Const, Var
-from ..model.frame import FILTER_COLUMNS
+from ..model.frame import fact_value
 from ..model.periods import label as month_label
 from ..model.spec import AnalysisSpec, CommentaryBlock, LinesBlock, TableBlock
 from ..xl.vendor import tn_rapportstil as tn
@@ -133,6 +133,8 @@ class SheetPlan:
 def _num(code: str, stock: bool) -> str:
     if code in MARK_CODES:
         return "markor"
+    if code in ("lines", "debit", "credit"):
+        return "heltall"
     if code == "var":
         return "tall1" if stock else "avvik"
     if code == "var_pct":
@@ -176,8 +178,8 @@ def _millions(o, stock: set[str]) -> bool:
 def constant_columns(frame) -> dict[str, str]:
     """Filter columns that hold one single value over the whole Data table: a criterion on it matches every row."""
     out = {}
-    for col in FILTER_COLUMNS:
-        vals = {getattr(x, col.lower()) for x in frame.facts}
+    for col in frame.columns()[:-1]:
+        vals = {fact_value(x, col) for x in frame.facts}
         if len(vals) == 1:
             out[col] = next(iter(vals))
     return out
@@ -237,7 +239,10 @@ def _last_period(o) -> str:
 def answer_subtitle(spec: AnalysisSpec, res: Result, closed: dict) -> str:
     """'NOK · <cubes> · <entity of the first query> · <period of the main table's last group> · closed <month>'.
     NOK only when every metric shown is an amount; otherwise no unit word (the headers carry the units)."""
-    cubes = sorted({q.cube for q in spec.queries}) or ["FinLite"]
+    cubes_set = {q.cube for q in spec.queries}
+    if any(isinstance(b, LinesBlock) for b in spec.blocks):
+        cubes_set.add("FinLite")
+    cubes = sorted(cubes_set) or ["FinLite"]
     if not isinstance(closed, dict):           # one closed month for every cube
         closed = {c: closed for c in cubes}
     used = {c: m for c, m in closed.items() if c in cubes}
@@ -295,10 +300,11 @@ def _threshold_table(p: SheetPlan, r: int, params: dict, stock: set[str], cols: 
     kinds = sorted({k for have in rows.values() for k in have})   # only the kinds with a value: no empty column
     pos = {k: i for i, k in enumerate(kinds)}
     letters = [col_letter(c) for c in cols]
+    end_col = letters[len(kinds) - 1]
     p.cells[(r, LABEL_COL)] = "Metric"
     for k in kinds:
         p.cells[(r, cols[pos[k]])] = THRESHOLD_HEADS[k]
-    p.rows.append({"row": r, "kind": "header", "num_cols": letters[:len(kinds)]})
+    p.rows.append({"row": r, "kind": "header", "num_cols": letters[:len(kinds)], "end_col": end_col})
     r += 1
     for metric, have in rows.items():
         is_stock = metric in stock
@@ -308,7 +314,7 @@ def _threshold_table(p: SheetPlan, r: int, params: dict, stock: set[str], cols: 
             p.cells[(r, cols[pos[k]])] = value
             p.params[key] = f"${letters[pos[k]]}${r}"
             num[letters[pos[k]]] = "prosent1" if THRESHOLD_KINDS[k] == MAT_PCT else _num("value", is_stock)
-        p.rows.append({"row": r, "kind": "line", "num": num})
+        p.rows.append({"row": r, "kind": "line", "num": num, "end_col": end_col})
         r += 1
     return r
 
@@ -319,6 +325,32 @@ def via_suffix(c: dict) -> str:
     if not via:
         return ""
     return f" (via {', '.join(via)})" if len(via) <= 3 else f" (via {len(via)} members)"
+
+
+def _table_col_headers(o, spec: AnalysisSpec) -> tuple[str, str]:
+    """Column B ('Code') and contextual Column C header for a placed table block."""
+    b = None
+    if o.key.startswith("b") and o.key[1:].isdigit():
+        idx = int(o.key[1:])
+        if idx < len(spec.blocks):
+            blk = spec.blocks[idx]
+            b = blk.data_table() if hasattr(blk, "data_table") and blk.type == "chart" else blk
+    if o.type == "lines":
+        label = {"account": "Account", "supplier": "Supplier",
+                 "project": "Project"}.get(getattr(b, "group_by", "supplier"), "Item")
+    elif o.type in ("table", "chart_data"):
+        label = {"entities": "Unit", "products": "Product"}.get(getattr(b, "rows", "metrics"), "Metric")
+    elif o.type == "ranking":
+        label = {"products": "Product"}.get(getattr(b, "rows", "entities"), "Unit")
+    elif o.type in ("matrix", "drivers"):
+        label = "Unit"
+    elif o.type in ("kpi_tiles", "bridge", "concept"):
+        label = "Metric"
+    elif o.type == "trend":
+        label = "Period"
+    else:
+        label = "Item"
+    return "Code", label
 
 
 def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: str,
@@ -381,20 +413,26 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
         return row
 
     def param(row: int, key: str, label: str, value: float, num: str) -> None:
+        end_col = col_letter(FIRST_COL)
         p.cells[(row, LABEL_COL)] = label
         p.cells[(row, FIRST_COL)] = value
         p.params[key] = f"${col_letter(FIRST_COL)}${row}"
-        p.rows.append({"row": row, "kind": "line", "num": {col_letter(FIRST_COL): num}})
+        p.rows.append({"row": row, "kind": "line", "num": {col_letter(FIRST_COL): num}, "end_col": end_col})
 
     def place(o, r: int) -> int:
+        end_col = col_letter(FIRST_COL + len(o.headers) - 1) if o.headers else col_letter(LABEL_COL)
         text(r, o.title, "section")
+        p.rows[-1]["end_col"] = end_col
         r += 1
         letters = [col_letter(FIRST_COL + j) for j in range(len(o.headers))]
+        code_hdr, label_hdr = _table_col_headers(o, spec)
+        p.cells[(r, CODE_COL)] = code_hdr
+        p.cells[(r, LABEL_COL)] = label_hdr
         for j, h in enumerate(o.headers):
             p.cells[(r, FIRST_COL + j)] = h
             col_kind.setdefault(FIRST_COL + j, set()).add(o.cols[j] if j < len(o.cols) else "")
         nums = [letters[j] for j in range(len(o.headers)) if j >= len(o.cols) or o.cols[j] != GAP]
-        p.rows.append({"row": r, "kind": "header", "num_cols": nums})
+        p.rows.append({"row": r, "kind": "header", "num_cols": nums, "end_col": end_col})
         header_row = r
         r += 1
         line_rows: list[tuple[int, object]] = []
@@ -403,7 +441,7 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
                 if k:
                     r += 1
                 p.cells[(r, LABEL_COL)] = sheet_label(ln)
-                p.rows.append({"row": r, "kind": "subhead"})
+                p.rows.append({"row": r, "kind": "subhead", "end_col": end_col})
                 placed.append((r, o, ln))
                 line_rows.append((r, ln))
                 r += 1
@@ -413,7 +451,7 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
             p.cells[(r, LABEL_COL)] = ("   " * ln.level) + sheet_label(ln)
             is_stock = ln.metric in stock if ln.metric else False
             num = {letters[j]: _num(o.cols[j], is_stock) for j in range(len(o.headers)) if o.cols[j] != GAP}
-            p.rows.append({"row": r, "kind": ln.kind, "num": num})
+            p.rows.append({"row": r, "kind": ln.kind, "num": num, "end_col": end_col})
             for j, e in enumerate(ln.cells):
                 if e is not None:
                     p.addr[ck(o.key, ln.key, j)] = f"{letters[j]}{r}"
@@ -463,7 +501,8 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
     text(r, "Checks", "section")
     r += 1
     p.cells[(r, LABEL_COL)] = "Sheet = model"
-    p.rows.append({"row": r, "kind": "check", "num": {}, "status_col": col_letter(FIRST_COL)})
+    p.rows.append({"row": r, "kind": "check", "num": {}, "status_col": col_letter(FIRST_COL),
+                   "end_col": col_letter(FIRST_COL)})
     p.status_cell = f"{col_letter(FIRST_COL)}{r}"
     r += 1
     check_rows: list[tuple[int, object, object]] = []
@@ -473,7 +512,8 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
             if ln.kind == "check" and any(e is not None for e in ln.cells):
                 what = ln.label.removeprefix("Check: ")          # the zone is called Checks
                 p.cells[(r, LABEL_COL)] = what if len(checked) == 1 else f"{o.title}: {what}"
-                p.rows.append({"row": r, "kind": "check", "num": {}, "status_col": col_letter(FIRST_COL)})
+                p.rows.append({"row": r, "kind": "check", "num": {}, "status_col": col_letter(FIRST_COL),
+                               "end_col": col_letter(FIRST_COL)})
                 check_rows.append((r, o, ln))
                 r += 1
     r += 1
@@ -513,7 +553,8 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
                 r += 1
             p.cells[(r, LABEL_COL)] = "Parameter"
             p.cells[(r, FIRST_COL)] = "Value"
-            p.rows.append({"row": r, "kind": "header", "num_cols": [col_letter(FIRST_COL)]})
+            p.rows.append({"row": r, "kind": "header", "num_cols": [col_letter(FIRST_COL)],
+                           "end_col": col_letter(FIRST_COL)})
             r += 1
         for key, label, value in plain:
             param(r, key, label, value, "heltall")
@@ -540,8 +581,17 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
 
     # 9. Source
     zone("source", r)
-    cubes = " + ".join(sorted({x.cube for x in spec.queries}) or ["FinLite"])
-    r = notes(r, f"Source: Oracle EPM Cloud ({cubes}) · table {table} (sheet Q{q} Data) · Sources sheet") - 1
+    cubes_set = {x.cube for x in spec.queries}
+    lines_outs = [o for o in tables if o.type == "lines"]
+    if lines_outs or any(isinstance(b, LinesBlock) for b in spec.blocks):
+        cubes_set.add("FinLite")
+    cubes = " + ".join(sorted(cubes_set) or ["FinLite"])
+    if not spec.queries and lines_outs:
+        src_tables = ", ".join(f"table Lines_Q{q}_{o.key} (sheet Q{q} Lines {o.key})" for o in lines_outs)
+        src_text = f"Source: Oracle EPM Cloud ({cubes}) · {src_tables} · Sources sheet"
+    else:
+        src_text = f"Source: Oracle EPM Cloud ({cubes}) · table {table} (sheet Q{q} Data) · Sources sheet"
+    r = notes(r, src_text) - 1
 
     # pass 2: formulas
     def addr(key: str) -> str:
@@ -573,11 +623,13 @@ def layout(q: int, spec: AnalysisSpec, res: Result, stock: set[str], subtitle: s
     p.last_col = col_letter(FIRST_COL + widest + 60)
     p.widths = _widths(p, col_kind)
     p.charts = _anchor(specs, charts_row, p.widths)
+    _fit_lone_charts(p)
     extent = col_number(_print_area_col(p))
     p.last_col = p.print_last_col
     _place_helpers(p, specs, max(FIRST_COL + widest + 1, extent + 2), col_kind)
     p.widths = _widths(p, col_kind)
     p.charts = _anchor(specs, charts_row, p.widths)
+    _fit_lone_charts(p)
     p.print_area_col = _print_area_col(p)
     return p
 
@@ -623,6 +675,23 @@ def conventions(spec: AnalysisSpec, res: Result, outs) -> str:
     if MARK_CODES & codes:
         parts.append("● = material (thresholds below).")
     return " ".join(parts) or "NOK."
+
+
+def _fit_lone_charts(p: SheetPlan) -> None:
+    """When a sheet's widest table ends at B..E (~471.75 pt) and a chart sits alone in its row at B, trim the
+    8.25 pt excess off CHART_WIDTH (480 pt) so print_area_col stays within the table's last column instead of
+    pulling an empty column into the print area."""
+    last = col_number(p.print_last_col)
+    table_w = sum(width_pt(p.widths.get(col_letter(c), DEFAULT_WIDTH)) for c in range(CODE_COL, last + 1))
+    if not (460.0 <= table_w < CHART_WIDTH):
+        return
+    drawn = [cs for cs in p.charts if _drawn(cs)]
+    by_row: dict[int, list[ChartSpec]] = {}
+    for cs in drawn:
+        by_row.setdefault(cs.anchor_row, []).append(cs)
+    for row_charts in by_row.values():
+        if len(row_charts) == 1 and row_charts[0].anchor_col == "B":
+            row_charts[0].width = min(row_charts[0].width, table_w)
 
 
 def _print_area_col(p: SheetPlan) -> str:
@@ -984,7 +1053,8 @@ def _chart(o, spec, res, outs, block_rows, stock, lint: list[str]) -> ChartSpec:
             rows = [(r, ln) for r, ln in line_rows if ln.key in leaves]
         else:
             drop = DROP_KEYS.get(data.type, set())
-            rows = [(r, ln) for r, ln in line_rows if ln.kind not in ("grand", "check") and ln.key not in drop]
+            rows = [(r, ln) for r, ln in line_rows if ln.kind not in ("grand", "check") and ln.key not in drop
+                    and (data.type != "lines" or ln.level == 0)]
             if any(ln.kind == "line" for _, ln in rows):
                 rows = [(r, ln) for r, ln in rows if ln.kind != "sum"]
         if not rows:

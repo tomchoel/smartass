@@ -6,9 +6,10 @@ last-year comparison, preliminary months. A total whose sign contradicts the met
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Literal
 
-from .blocks.common import BlockOut, base_of, ck
+from .blocks.common import BlockOut, base_of, ck, code_of, metric_label
 from .context import Ctx
 from .errors import GuardError
 from .expr import Cells
@@ -103,16 +104,16 @@ def guard_chart(spec: AnalysisSpec) -> None:
                      "source:{block:<bridge index>}}")
 
 
-MAX_KEY_POINTS = 5
+MAX_KEY_POINTS = 7
 
 
 def guard_key_points(spec: AnalysisSpec) -> None:
-    """New questions only (server._new_question): a commentary block holds at most 5 key points. Stored specs
-    (patch, refresh, redraw) keep loading; there the first 5 are kept with a warning (keypoints.free_points)."""
+    """New questions only (server._new_question): a commentary block holds at most 7 key points. Stored specs
+    (patch, refresh, redraw) keep loading; there the first 7 are kept with a warning (keypoints.free_points)."""
     for i, b in enumerate(spec.blocks):
         if isinstance(b, CommentaryBlock) and len(b.key_points) > MAX_KEY_POINTS:
             raise GuardError(f"block {i} (commentary): {len(b.key_points)} key points, at most {MAX_KEY_POINTS}",
-                             "keep the 5 that matter most; the engine adds the material lines itself")
+                             f"keep the {MAX_KEY_POINTS} that matter most; the engine adds the material lines itself")
 
 
 def _guard_groups(b: TableBlock, q, cl) -> None:
@@ -151,11 +152,42 @@ def guard_result(outs: list[BlockOut], cells: Cells) -> None:
                                      "fin_lookup before using these numbers")
 
 
+_SOFT_INCOME = {"ebitda", "ebitda before other items", "gross margin", "revenue"}
+_TOP_UNIT = re.compile(r"^[012](?![0-9])")
+SMALL_REVENUE_NOK = 50_000.0
+
+
+def _is_sub_or_cost_centre(entity: str) -> bool:
+    if entity in ("un.SY", "All Entities"):
+        return False
+    return not bool(_TOP_UNIT.match(code_of(entity)))
+
+
+def _query_revenue(ctx: Ctx, q) -> float | None:
+    try:
+        return ctx.value(ctx.pick(q, "Revenue", "value"))
+    except (UnknownMetric, KeyError, ValueError):
+        return None
+
+
+def _metric_name(r: Resolver, token: str, cube: str) -> str:
+    find = getattr(r, "metric", None)
+    m = find(token) if find is not None else None
+    if m is not None:
+        return m.name.strip().casefold()
+    try:
+        return metric_label(r, token, cube).strip().casefold()
+    except Exception:   # noqa: BLE001
+        return token.strip().casefold()
+
+
 def sign_findings(ctx: Ctx) -> list[Finding]:
     out: list[Finding] = []
     for q in ctx.spec.queries:
         if q.cube == "FinPlan":
             continue
+        rev = _query_revenue(ctx, q)
+        cc_or_small = _is_sub_or_cost_centre(q.entity) or (rev is not None and abs(rev) < SMALL_REVENUE_NOK)
         for m in q.metrics:
             s = ctx.resolver.sign(m)
             if s == "neutral":
@@ -165,6 +197,9 @@ def sign_findings(ctx: Ctx) -> list[Finding]:
                 continue
             if (s == "cost" and v > 0) or (s == "income" and v < 0):
                 want = "negative" if s == "cost" else "positive"
-                out.append(Finding("critical", f"{m} in query {q.id} is {v:,.0f}; a {s} metric should be {want} "
-                                               f"in {q.cube}", q.id))
+                sev: Literal["critical", "warning", "info"] = "critical"
+                if s == "income" and cc_or_small and _metric_name(ctx.resolver, m, q.cube) in _SOFT_INCOME:
+                    sev = "info"
+                out.append(Finding(sev, f"{m} in query {q.id} is {v:,.0f}; a {s} metric should be {want} "
+                                        f"in {q.cube}", q.id))
     return out

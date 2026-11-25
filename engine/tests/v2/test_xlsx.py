@@ -23,16 +23,25 @@ from smartass.render.excel import SHEET_FOOTER, VALUE_FORMAT, answer_footer, ans
 from smartass.render.layout import col_letter, col_number
 from smartass.render.look import answer_look, style_props
 from smartass.render.xlsx import DataSheet, LinesSheet, build
-from smartass.xl.drill_xl import AMT_FMT, WIDTHS, header_width
+from smartass.xl.drill_xl import AMT_FMT, header_width
 from smartass.xl.vendor import tn_rapportstil as tn
 
 FOOTER = answer_footer(datetime.datetime(2026, 11, 5))
 WHEN = datetime.datetime(2026, 11, 5, 9, 30, tzinfo=datetime.timezone(datetime.timedelta(hours=1)))
 SOME_SUM_KEY = "b0.m2.0"                  # D28 of the P&L table: its grand total row, TN Heltall · Hovedsum
+def _ordered(cols: list[str]) -> list[str]:
+    have = set(cols)
+    first = [c for c in xlsx.ANALYTICAL_COLS if c in have]
+    fset = set(first)
+    return first + [c for c in cols if c not in fset]
+
+
 COLUMNS = ["Period", "GL_POSTED_DATE", "ACCOUNT", "AP_CUSTOMER_NAME", "AMOUNT", "DEBET_AMOUNT", "LINE",
            "GL_DESCRIPTION_LINE"]        # DEBET_AMOUNT and LINE are not key columns
+ORDERED_COLUMNS = _ordered(COLUMNS)
 KEY_COLUMNS = [c for c in COLUMNS if c in KEY_LABELS]
-SUPPLIER_COL = COLUMNS.index("AP_CUSTOMER_NAME") + 1
+ORDERED_KEY_COLUMNS = KEY_COLUMNS
+SUPPLIER_COL = ORDERED_COLUMNS.index("AP_CUSTOMER_NAME") + 1
 ACCOUNT_COL = 3                           # Cube, Query, Account, ...
 POSTED = datetime.datetime(2026, 9, 30, 10, 25, tzinfo=datetime.timezone.utc)
 BORDER = {1: "thin", 2: "medium", 6: "double"}
@@ -314,7 +323,7 @@ def test_a_nan_or_infinite_fact_or_amount_is_an_error_cell_not_a_failed_build(tm
     book = openpyxl.load_workbook(built.path)
     r0, w = data.header.table_row, len(g[0])
     assert [book["Q3 Data"].cell(r0 + i, w).value for i in (1, 2)] == ["=#NUM!", "=1/0"]     # Excel: #NUM!, #DIV/0!
-    assert book["Q3 Lines b0"].cell(5, COLUMNS.index("AMOUNT") + 1).value == "=#NUM!"
+    assert book["Q3 Lines b0"].cell(5, ORDERED_COLUMNS.index("AMOUNT") + 1).value == "=#NUM!"
 
 
 def test_value_text_is_the_number_as_the_value_format_shows_it():
@@ -370,10 +379,10 @@ def test_the_lines_sheet_as_today(built):
     assert (ws["A1"].value, ws["A1"].font.b) == (ls.title, True)
     assert ws["A2"].value == ls.source and _rgb(ws["A2"].font.color) == "#000000"
     assert ws["C3"].value == "Cube value" and ws["D3"].value == -66_471_995.74 and ws["D3"].number_format == AMT_FMT
-    assert [ws.cell(4, j + 1).value for j in range(len(COLUMNS))] == COLUMNS
+    assert [ws.cell(4, j + 1).value for j in range(len(ORDERED_COLUMNS))] == ORDERED_COLUMNS
     for i in range(3):
         line = _line(i)
-        got = {c: ws.cell(5 + i, j + 1) for j, c in enumerate(COLUMNS)}
+        got = {c: ws.cell(5 + i, j + 1) for j, c in enumerate(ORDERED_COLUMNS)}
         assert got["Period"].value == "Sep 26" and got["Period"].data_type == "s"
         assert got["GL_POSTED_DATE"].value == POSTED.replace(tzinfo=None)                 # a serial, tz dropped
         assert got["GL_POSTED_DATE"].number_format == "dd.mm.yyyy"
@@ -382,18 +391,22 @@ def test_the_lines_sheet_as_today(built):
         assert got["AMOUNT"].value == line["AMOUNT"] and got["AMOUNT"].number_format == AMT_FMT
         assert got["DEBET_AMOUNT"].value is None and got["DEBET_AMOUNT"].number_format == AMT_FMT
         assert got["GL_DESCRIPTION_LINE"].number_format == "General"
-    for j, c in enumerate(COLUMNS):
-        want = max(WIDTHS.get(c, 14), header_width(c))
-        assert _widths(ws)[col_letter(j + 1)] == pytest.approx(want, abs=0.75), c
+    for j, c in enumerate(ORDERED_COLUMNS):
+        w = _widths(ws)[col_letter(j + 1)]
+        assert header_width(c) <= w + 0.05 and w <= xlsx.LINE_COL_MAX + 0.5, c
     assert ws.freeze_panes == "A5" and ws.print_title_rows == "$4:$4"
     assert ws.sheet_properties.tabColor.rgb.endswith("A6A6A6") and ws.sheet_view.showGridLines is not False
     assert ws.print_area == f"'Q3 Lines b0'!$A$1:$K${4 + 3}"                          # the table and F1:K3
     setup = ws.sheet_properties.pageSetUpPr
     assert (setup is None or not setup.fitToPage) and ws.page_setup.orientation == "landscape"   # 100 %
     assert f"<oddFooter>&amp;C{SHEET_FOOTER.replace('&', '&amp;')}</oddFooter>" in _xml(built.path, 3)
+    assert {"A1:E1", "A2:E2", "G1:K1", "G2:K2"} <= {str(m) for m in ws.merged_cells.ranges}
     for r in range(1, 4):
         for c in range(col_number("F"), col_number("K") + 1):
             cell = ws.cell(r, c)
+            if r in (1, 2) and c > col_number("G"):
+                assert isinstance(cell, openpyxl.cell.cell.MergedCell)
+                continue
             assert cell.value is None and (cell.font.name, cell.font.sz) == ("Arial", 9)
             grey = c == col_number("F") or (r, c) in ((3, col_number("H")), (3, col_number("J")))
             assert _rgb(cell.font.color) == ("#767676" if grey else "#262626"), (r, c)
@@ -409,7 +422,7 @@ def test_a_missing_cube_value_is_a_blank_in_the_amount_format_and_a_plain_date_i
     built = build(tmp_path / "answer.xlsx", "Q3 Answer", _plan(), _data(), [ls])
     ws = openpyxl.load_workbook(built.path)["Q3 Lines b0"]
     assert ws["D3"].value is None and ws["D3"].number_format == AMT_FMT
-    posted = ws.cell(5, COLUMNS.index("GL_POSTED_DATE") + 1)
+    posted = ws.cell(5, ORDERED_COLUMNS.index("GL_POSTED_DATE") + 1)
     assert posted.value == datetime.datetime(2026, 9, 30) and posted.number_format == "dd.mm.yyyy"
 
 
@@ -417,7 +430,7 @@ def test_a_missing_cube_value_is_a_blank_in_the_amount_format_and_a_plain_date_i
 def test_lines_at_the_edges(tmp_path, n, cols, monkeypatch):               # Review Focus 5
     monkeypatch.setattr(config, "DRILL_XL_FULL", 50)                       # keep the test fast
     built = build_with(tmp_path, lines=[_line(i) for i in range(n)])
-    want = COLUMNS if cols == "all" else KEY_COLUMNS
+    want = ORDERED_COLUMNS if cols == "all" else ORDERED_KEY_COLUMNS
     ws = openpyxl.load_workbook(built.path)["Q3 Lines b0"]
     assert [ws.cell(4, j + 1).value for j in range(len(COLUMNS))] == want + [None] * (len(COLUMNS) - len(want))
     # 0 lines: the header row plus one empty body row (ListObjects.Add needs a body row)
@@ -555,7 +568,7 @@ def test_the_lines_date_takes_the_destinations_date_format(tmp_path, plan):
         path = tmp_path / f"answer{i}.xlsx"
         base = xlsx.Base("Telenor", 11, row_px=19, col_px=72, date_format=fmt)
         build(path, "Q3 Answer", plan, _data(), [_lines([_line(0)])], base=base)
-        got = openpyxl.load_workbook(path)["Q3 Lines b0"].cell(5, COLUMNS.index("GL_POSTED_DATE") + 1)
+        got = openpyxl.load_workbook(path)["Q3 Lines b0"].cell(5, ORDERED_COLUMNS.index("GL_POSTED_DATE") + 1)
         assert got.number_format == want, fmt
 
 
@@ -752,3 +765,57 @@ def test_the_furnitures_version_is_pinned_to_what_it_is():
     claims the new one and is never furnished again: change both here, on purpose."""
     from smartass.xl import sources
     assert (sources.furniture().version, sources.furniture_fingerprint()) == ("1", "68a71a98cf02")
+
+
+def test_build_without_data_sheet_omits_data_tab(tmp_path, plan):
+    ls = _lines([_line(0)])
+    ls.name = "Q1 Lines b0"
+    ls.table = "Lines_Q1_b0"
+    built = build(tmp_path / "lines_only.xlsx", "Q1 Answer", plan, None, [ls])
+    assert built.sheets == ["Q1 Answer", "Q1 Lines b0"]
+    wb = openpyxl.load_workbook(built.path)
+    assert wb.sheetnames == ["Q1 Answer", "Q1 Lines b0"]
+    assert all(t.name != "Data_Q1" for t in built.tables)
+
+
+def test_lines_sheet_analytical_cols_first_content_widths_capped_and_header_wraps(tmp_path, plan):
+    cols = ["REC_ID", "Period", "JE_SOURCE", "ACCOUNT", "ACCOUNT_NAME", "AMOUNT", "CREDIT_AMOUNT",
+            "CC_DESC", "GL_DESCRIPTION_LINE", "TECHNICAL_UUID"]
+    long_desc = "Very long consulting line narrative " + "x" * 120
+    row = {
+        "REC_ID": "1001", "Period": "Sep 26", "JE_SOURCE": "ABA", "ACCOUNT": "43200",
+        "ACCOUNT_NAME": "External Consultants", "AMOUNT": -5000.0, "CREDIT_AMOUNT": None,
+        "CC_DESC": "Network Operations", "GL_DESCRIPTION_LINE": long_desc, "TECHNICAL_UUID": "uuid-1",
+    }
+    ls = LinesSheet(
+        name="Q3 Lines b0", table="Lines_Q3_b0",
+        title="Ledger lines behind very long title " + "abc " * 20,
+        source="Source: Oracle EPM Cloud Drill — " + "detail " * 25,
+        columns=cols, rows=[row], cube_value=-5000.0,
+        header_block=[["'POV", "'All Accounts: ac.C60 / All Entities: un.SY.2BUS / Very Long Dim List " + "Z" * 80,
+                       "", "", "", ""],
+                      ["'Fetched", "'2026-11-25 12:00 by analyst " + "note " * 20, "", "", "", ""],
+                      ["'Lines total", "=-5000", "'Tie-out", "'OK", "'Tolerance (NOK)", 1.0]],
+    )
+    built = build(tmp_path / "analytical.xlsx", "Q3 Answer", plan, None, [ls], base=telenor())
+    ws = openpyxl.load_workbook(built.path)["Q3 Lines b0"]
+    got_cols = [ws.cell(4, j + 1).value for j in range(len(cols))]
+    assert got_cols[:8] == ["Period", "CC_DESC", "ACCOUNT", "ACCOUNT_NAME", "AMOUNT",
+                            "CREDIT_AMOUNT", "GL_DESCRIPTION_LINE", "JE_SOURCE"]
+    assert got_cols[8:] == ["REC_ID", "TECHNICAL_UUID"]
+    w = _widths(ws)
+    desc_col = col_letter(got_cols.index("GL_DESCRIPTION_LINE") + 1)
+    assert w[desc_col] <= written_width(xlsx.LINE_COL_MAX, 8) + 0.05
+    assert w[desc_col] >= 40.0
+    assert ws.row_dimensions[1].height > 20.0
+    assert ws.row_dimensions[2].height > 20.0
+
+
+def test_lines_sheet_unbroken_long_header_scales_height(tmp_path, plan):
+    ls = _lines([_line(0)])
+    ls.header_block = [["'POV", "'" + "X" * 240, "", "", "", ""],
+                       ["'Fetched", "'2026-11-25", "", "", "", ""],
+                       ["'Lines total", "=-1234.5", "'Tie-out", "'OK", "'Tolerance (NOK)", 1.0]]
+    built = build(tmp_path / "unbroken.xlsx", "Q3 Answer", plan, None, [ls], base=telenor())
+    ws = openpyxl.load_workbook(built.path)["Q3 Lines b0"]
+    assert ws.row_dimensions[1].height >= 3 * 14 + 4

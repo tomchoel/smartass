@@ -11,7 +11,8 @@ plan). The deterministic part is the stored specs and `fin_refresh`; judgement g
   `closed-12m`. Never a fixed month such as `Sep 26` in a pack question.
 - Comparison: the same period last year (`compare: ["ly"]`) for P&L and cost in FinMax. Actual vs budget or
   forecast as its own question entirely in FinPlan, with a FinMax EBITDA line as the reconciliation.
-- Depth `standard` for every pack question, with `purpose` and `hypotheses`, so each gets a critic brief.
+- Depth `standard` and `mode: "pack"` for every pack question, with `purpose` and `hypotheses`, so each enforces
+  the full P&L chain, chart, and critic brief.
 - Blocks: `kpi_tiles` for the headline, `table`, a full EBITDA `bridge` (Revenue, COGS, Opex, Other items),
   `drivers` on each metric that is usually material, and a `commentary` block.
 - Run the critic on each question once (`fin_critic(q)`) and store the score: the first month sets the bar.

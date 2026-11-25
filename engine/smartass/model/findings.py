@@ -66,7 +66,7 @@ def bridge_findings(outs: list[BlockOut], cells: Cells, r: Resolver) -> list[Fin
 SKIP = (GAP, "material")     # spacer and marker columns are not numbers to quote
 
 
-def key_values(outs: list[BlockOut], cells: Cells, limit: int = 40) -> dict[str, dict[str, float | None]]:
+def key_values(outs: list[BlockOut], cells: Cells, limit: int = 250) -> dict[str, dict[str, float | None]]:
     """'<block title> · <line label>' -> {stable column key: value}, at most limit lines. The cap is filled with the
     lines given first and the chain lines complete_chain added after them (an added line never pushes a given one
     out); the lines kept are listed in block order."""
@@ -91,7 +91,7 @@ def lines_findings(outs: list[BlockOut], cells: Cells) -> list[Finding]:
     """A lines block whose ledger lines do not add up to the cube value: the drill and the cube disagree."""
     out: list[Finding] = []
     for o in outs:
-        if o.type != "lines":
+        if o.type != "lines" or not any(ln.key == "gap" for ln in o.lines):
             continue
         gap = cells.get(ck(o.key, "gap", 0))
         if gap is not None and abs(gap) >= TOLERANCE:

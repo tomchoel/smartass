@@ -269,9 +269,13 @@ def _server(monkeypatch):
 
 def test_new_question_without_chart_is_refused_before_any_work(monkeypatch):
     seen = _server(monkeypatch)
+    d_pack = spec(TABLE).model_dump()
+    d_pack["plan"]["mode"] = "pack"
     with pytest.raises(GuardError, match="no chart"):
-        asyncio.run(server._new_question(spec(TABLE), "session"))
+        asyncio.run(server._new_question(AnalysisSpec.model_validate(d_pack), "session"))
     assert "raw" not in seen
+    asyncio.run(server._new_question(spec(TABLE), "session"))   # default adhoc allows standard without chart
+    assert seen["raw"]["blocks"][0]["type"] == "table"
     asyncio.run(server._new_question(spec(TABLE, chart()), "session"))
     assert seen["raw"]["blocks"][1]["type"] == "chart"
     asyncio.run(server._new_question(spec(TABLE, depth="quick"), "session"))
@@ -286,7 +290,7 @@ def test_fin_drill_is_quick_and_needs_no_chart(monkeypatch):
                                reconciliation={"gap": 0.0}, warnings=[])
     monkeypatch.setattr(server, "_drill", drill)
     asyncio.run(server.fin_drill({"All Accounts": "ac.C60", "All Entities": "un.SY.2TEC",
-                                  "All Time Periods": "Sep 26"}))
+                                  "All Time Periods": "Sep 26"}, target="session"))
     assert seen["raw"]["blocks"][0]["type"] == "lines"
 
 

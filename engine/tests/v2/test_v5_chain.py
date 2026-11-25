@@ -16,9 +16,10 @@ from smartass.pipeline import prepare
 ALL7 = ["Revenue", "COGS", "Gross margin", "Opex", "EBITDA before other items", "Other items", "EBITDA"]
 
 
-def spec(metrics, table=None, cube="FinMax"):
+def spec(metrics, table=None, cube="FinMax", mode="pack"):
     b = {"type": "table", "query": "fm", "title": "P&L", "metrics": metrics, **(table or {})}
     d = spec_dict(blocks=[b])
+    d["plan"]["mode"] = mode
     d["queries"][0].update(cube=cube, metrics=list(metrics))
     if cube == "FinPlan":
         d["queries"][0]["compare"] = ["budget"]
@@ -55,9 +56,19 @@ def test_complete_chain_leaves_tables_without_ebitda_or_chain_false():
 
 def test_complete_chain_on_a_table_defaulting_to_query_metrics():
     d = spec_dict(blocks=[{"type": "table", "query": "fm", "title": "P&L"}])
+    d["plan"]["mode"] = "pack"
     out = complete_chain(AnalysisSpec.model_validate(d), chain_resolver())
     assert out.blocks[0].metrics[:3] == ["Revenue", "Opex", "EBITDA"]                    # m0..m2 keep their index
     assert set(out.queries[0].metrics) == set(ALL7)
+
+
+def test_adhoc_mode_keeps_explicit_metrics_unless_chain_explicit():
+    r = chain_resolver()
+    s = spec(["Revenue", "EBITDA"], mode="adhoc")
+    out = complete_chain(s, r)
+    assert out.blocks[0].metrics == ["Revenue", "EBITDA"]
+    explicit = spec(["EBITDA"], table={"chain": True}, mode="adhoc")
+    assert set(complete_chain(explicit, r).blocks[0].metrics) == set(ALL7)
 
 
 class Prov:

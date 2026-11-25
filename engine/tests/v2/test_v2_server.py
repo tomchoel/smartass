@@ -4,9 +4,11 @@ import pytest
 from smartass import server
 
 
-def test_nine_tools_registered():
-    assert server.TOOL_NAMES == ("fin_analyze", "fin_lookup", "fin_status", "fin_refresh", "fin_drill", "fin_critic",
-                                 "xl_snapshot", "xl_revert", "xl_tidy")
+def test_twelve_tools_registered():
+    assert server.TOOL_NAMES == (
+        "fin_analyze", "fin_lookup", "fin_tree", "fin_slice", "fin_drill", "fin_lines",
+        "fin_status", "fin_refresh", "fin_critic", "xl_snapshot", "xl_revert", "xl_tidy",
+    )
 
 
 def test_instructions_mention_the_excel_toolkit_and_reconnect():

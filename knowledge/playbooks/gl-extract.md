@@ -9,22 +9,21 @@ ledger lines per account and cost centre for a review, an audit question or a mo
    (`un.SY.<code>`). A metric with several accounts (Opex = `ac.C50S` + `ac.C60`) is drilled per account: one
    cell is one account × one entity × one period.
 2. **Choose the period.** One month: `Sep 26`. A year to date: the year parent `Yr 26` returns every line of the
-   year in one drill; filter the months afterwards (the lines carry their period) and add them up to the YTD.
-   Do not drill month by month for a YTD. The drill is Periodic only.
-3. **Drill.**
-   - A quick look: `fin_drill(cell, group_by, top)` with
-     `{"All Accounts": "ac.C60", "All Entities": "un.SY.2TEC", "All Time Periods": "Yr 26"}`.
-   - Inside an analysis: a `lines` block with the same cell, next to the table it explains, so a commentary
-     driver can cite the group as evidence (`basis: "data"`).
-   - `group_by`: `supplier` for purchases, `project` for capex-like or programme costs, `account` when the cell
-     is a parent account. `top` 10–20, the rest in Other.
-   - Several accounts or cost centres: one `lines` block per cell in one spec; they are drilled in parallel.
-4. **Reconcile.** The lines total must equal the cube value: the gap line must be zero and the reconciliation
+   year in one drill; filter the months afterwards with `fin_lines(drill_id, where={"period_to": "Oct 26"})` or a
+   filtered `lines` block (the lines carry `Period` and `period_ym`). Do not drill month by month for a YTD.
+3. **Explore & Drill.**
+   - Investigate first (zero Excel): `fin_drill(cell)` (without `target`) caches all 45 columns in SQLite and returns
+     `drill_id` + multi-facet `profile`. Then use `fin_lines(drill_id, ...)` to filter (`where`, `exclude_reversals`),
+     multi-group (e.g. `["ACCOUNT", "Entity"]`), or run read-only `SELECT ... FROM lines` SQL.
+   - Inside an Excel deliverable: pass `target="session"` to `fin_drill`, or add a `lines` block (`cell`, optional
+     `drill_id`, `where`, `exclude_reversals`, `group_by`) next to the table it explains (`basis: "data"`).
+   - Several accounts or cost centres: multiple `lines` blocks run in parallel.
+4. **Reconcile.** The unfiltered drill total must equal the cube value: the gap line must be zero and the reconciliation
    must say `exact`. A gap is a finding: lines posted after the drill, a different balance type, or the wrong
-   cell. Never report lines that do not tie without saying so.
+   cell. Never report filtered subtotals as full cell balances without showing the unfiltered cube reconciliation.
 5. **Read the lines.** Labels mislead: an account group called travel can hold a VAT-interest journal, and an
-   energy line can be an allocation journal. Name what the lines are (supplier, journal text), not the account
-   label. Lines without a supplier or project are journals: say so.
+   energy line can be an allocation journal. Inspect `GL_DESCRIPTION_LINE`, `JOURNAL_NAME`, and `JE_SOURCE` via
+   `fin_lines` — name what the lines actually are, not just the account label. Lines without a supplier are journals.
 
 ## Report
 

@@ -1,8 +1,8 @@
 # Critic rubric
 
-Apply to every `standard` or `deep` answer and to every pack question, after the commentary is written. Read the
-`critic_brief` (from the reply or `fin_critic`): plan, material lines with `backed`, comparisons, caveats, checks,
-findings, commentary drivers and `gaps`. Score each criterion 1–5 as a controller would.
+Apply to every `mode: "pack"` question, every `depth: "deep"` answer, or when asked for a formal review after the
+commentary is written. Read the `critic_brief` (from the reply or `fin_critic`): plan, material lines with `backed`,
+comparisons, caveats, checks, findings, commentary drivers and `gaps`. Score each criterion 1–5 as a controller would.
 
 | # | Criterion | 2 = weak | 5 = controller-ready |
 |---|-----------|----------|----------------------|

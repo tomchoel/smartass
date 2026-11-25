@@ -33,7 +33,7 @@ from ..core import config
 from ..epm.drill_lines import KEY_LABELS
 from ..model.lines import CUBE_CELL
 from ..xl import styling
-from ..xl.drill_xl import _EXCEL_EPOCH, AMOUNT_LABELS, AMT_FMT, DATE_LABELS, TEXT_LABELS, WIDTHS, header_width
+from ..xl.drill_xl import _EXCEL_EPOCH, AMOUNT_LABELS, AMT_FMT, DATE_LABELS, TEXT_LABELS, header_width
 from ..xl.vendor import tn_rapportstil as tn
 from . import look, xlsx_charts
 from .datasheet import LINES_HEADER, Header
@@ -164,10 +164,23 @@ def value_text(v) -> str:
     return f"({shown})" if v < 0 else shown
 
 
+ANALYTICAL_COLS = (
+    "Period", "Entity", "CC_DESC", "ACCOUNT", "ACCOUNT_NAME",
+    "AP_CUSTOMER_NAME", "AMOUNT", "DEBET_AMOUNT", "CREDIT_AMOUNT",
+    "GL_DESCRIPTION_LINE", "JOURNAL_NAME", "JE_SOURCE",
+    "PROJECT", "PROJECT_DESC", "PRODUCT_DESC",
+)
+LINE_COL_MAX = 50
+
+
 def _lines_cols(ls: LinesSheet) -> list[str]:
-    """Above config.DRILL_XL_FULL lines only the key columns go to Excel (full detail stays in drill.db)."""
+    """Below DRILL_XL_FULL move analytical columns first while keeping all remaining columns to the right;
+    above DRILL_XL_FULL only the key columns go to Excel (full detail stays in drill.db)."""
     if len(ls.rows) <= config.DRILL_XL_FULL:
-        return list(ls.columns)
+        have = set(ls.columns)
+        first = [c for c in ANALYTICAL_COLS if c in have]
+        first_set = set(first)
+        return first + [c for c in ls.columns if c not in first_set]
     return [c for c in ls.columns if c in KEY_LABELS]
 
 
@@ -176,17 +189,18 @@ def _table_end(first: int, body: int) -> int:
     return first + max(body, 1)
 
 
-def build(path: Path, answer_name: str, plan: SheetPlan, data: DataSheet, lines: list[LinesSheet],
+def build(path: Path, answer_name: str, plan: SheetPlan, data: DataSheet | None, lines: list[LinesSheet],
           base: Base | None = None, book: NewBook | None = None) -> BuiltFile:
-    """Write the answer's sheets to path, in the order Answer, Data, the Lines sheets, in the destination's base
-    (movein.base); with book the file is a new workbook: the Sources log after them (_sources) and book's custom
-    document properties. Refuses (TooManyRows, ValueError) before any file is written. Returns the tables and formula
-    blocks to create after the move-in (or the open); BuiltFile.sheets are the answer's own."""
+    """Write the answer's sheets to path, in the order Answer, Data (when present), the Lines sheets, in the
+    destination's base (movein.base); with book the file is a new workbook: the Sources log after them (_sources)
+    and book's custom document properties. Refuses (TooManyRows, ValueError) before any file is written. Returns
+    the tables and formula blocks to create after the move-in (or the open); BuiltFile.sheets are the answer's own."""
     m = re.fullmatch(r"Q(\d+) Answer", answer_name)
     if m is None:
         raise ValueError(f"answer sheet {answer_name!r}: the name must be 'Q<n> Answer'")
     q = int(m.group(1))
-    check_rows(data.name, _table_end(data.header.table_row, len(data.grid) - 1))
+    if data is not None:
+        check_rows(data.name, _table_end(data.header.table_row, len(data.grid) - 1))
     for ls in lines:
         check_rows(ls.name, _table_end(LINES_ROW, len(ls.rows)))
     tables: list[TableSpec] = []
@@ -196,9 +210,10 @@ def build(path: Path, answer_name: str, plan: SheetPlan, data: DataSheet, lines:
         formulas.append(_answer(wb, fmt, answer_name, plan))
         charts, chart_lint, label_fixes = xlsx_charts.add_charts(wb, wb.get_worksheet_by_name(answer_name),
                                                                  answer_name, plan)
-        table, block = _data(wb, fmt, q, data)
-        tables.append(table)
-        formulas.append(block)
+        if data is not None:
+            table, block = _data(wb, fmt, q, data)
+            tables.append(table)
+            formulas.append(block)
         for ls in lines:
             table, block = _lines(wb, fmt, ls, base.date_format if base is not None else DATE_FMT)
             tables.append(table)
@@ -209,7 +224,8 @@ def build(path: Path, answer_name: str, plan: SheetPlan, data: DataSheet, lines:
                 wb.set_custom_property(name, value, "text")
             if book.theme is not None:
                 wb.use_custom_theme(io.StringIO(book.theme))
-    return BuiltFile(path=Path(path), sheets=[answer_name, data.name, *(ls.name for ls in lines)], tables=tables,
+    sheets = [answer_name, *([data.name] if data is not None else []), *(ls.name for ls in lines)]
+    return BuiltFile(path=Path(path), sheets=sheets, tables=tables,
                      formulas=formulas, charts=charts, chart_lint=chart_lint, label_fixes=label_fixes)
 
 
@@ -401,13 +417,30 @@ def _line_value(ws, r: int, c: int, label: str, v, f) -> None:
         ws.write_string(r, c, str(v), f)
 
 
+def _line_cell_text(col: str, v) -> str:
+    if v is None or v == "":
+        return ""
+    if isinstance(v, (dt.datetime, dt.date)):
+        return "30.09.2026"
+    if col in AMOUNT_LABELS and isinstance(v, (int, float)) and not isinstance(v, bool):
+        return value_text(v)
+    return str(v)
+
+
+def _wrap_count(text: str, width: float, size: int, bold: bool) -> int:
+    n = tn.wrap_lines(text, width, size, bold)
+    if n is not None:
+        return n
+    return max(2, math.ceil(tn.text_units(text, size, bold) / max(width - 0.6, 1.0)))
+
+
 def _lines(wb, fmt: _Formats, ls: LinesSheet, date_fmt: str | int = DATE_FMT) -> tuple[TableSpec, FormulaBlock]:
-    """Q<n> Lines <alias>: A1 title (bold), A2 source, the cube value beside its label, the column names in row 4,
-    the lines from row 5; F1:K3's look, its contents a block."""
+    """Q<n> Lines <alias>: A1:E1 title (bold, wrapped), A2:E2 source (wrapped), C3/D3 cube value, row 4 column
+    names, lines from row 5; F1:K3 look (G1:K1 & G2:K2 merged & wrapped so POV never spills), content-sized widths."""
     ws = wb.add_worksheet(ls.name)
     cols = _lines_cols(ls)
-    ws.write_string(0, 0, ls.title, fmt({"bold": True}))
-    ws.write_string(1, 0, ls.source, fmt({"font_color": "#000000"}))
+    ws.merge_range(0, 0, 0, 4, ls.title, fmt({"bold": True, "text_wrap": True, "valign": "vcenter"}))
+    ws.merge_range(1, 0, 1, 4, ls.source, fmt({"font_color": "#000000", "text_wrap": True, "valign": "vcenter"}))
     cr, cc = xl_cell_to_rowcol(CUBE_CELL)
     ws.write_string(cr, cc - 1, "Cube value")
     amount = fmt({"num_format": AMT_FMT})
@@ -424,16 +457,58 @@ def _lines(wb, fmt: _Formats, ls: LinesSheet, date_fmt: str | int = DATE_FMT) ->
             p = base | ({"font_color": GREY} if (r, c) in grey else {})
             if (r, c) == (r2, c1 + 1):                                               # G3: the lines total
                 p["num_format"] = VALUE_FORMAT
+            if r in (r1, r1 + 1) and c >= c1 + 1:
+                p["text_wrap"] = True
+                p["valign"] = "vcenter"
             ws.write_blank(r, c, None, fmt(p))
+    wrap_fmt = fmt(base | {"text_wrap": True, "valign": "vcenter"})
+    for mr in (r1, r1 + 1):
+        ws.merge_range(mr, c1 + 1, mr, c2, None, wrap_fmt)
+        for mc in range(c1 + 2, c2 + 1):
+            ws.write_blank(mr, mc, None, wrap_fmt)
+
+    min_w: dict[int, float] = {j: float(header_width(c)) for j, c in enumerate(cols)}
+    raw_units: dict[int, float] = {j: 0.0 for j in range(len(cols))}
     for j, c in enumerate(cols):
         ws.write_string(LINES_ROW - 1, j, c)
     date = fmt({"num_format": date_fmt})
     col_fmt = [amount if c in AMOUNT_LABELS else date if c in DATE_LABELS else None for c in cols]
+    total_amt = 0.0
     for i, row in enumerate(ls.rows):
+        av = row.get("AMOUNT")
+        if isinstance(av, (int, float)) and not isinstance(av, bool):
+            total_amt += av
         for j, c in enumerate(cols):
-            _line_value(ws, LINES_ROW + i, j, c, row.get(c), col_fmt[j])
-    for j, c in enumerate(cols):
-        ws.set_column(j, j, max(WIDTHS.get(c, 14), header_width(c)))
+            v = row.get(c)
+            _line_value(ws, LINES_ROW + i, j, c, v, col_fmt[j])
+            txt = _line_cell_text(c, v)
+            if txt:
+                raw_units[j] = max(raw_units[j], tn.text_units(txt, 11))
+    # Provenance & tie-out cells in rows 1-3 never cut off or show ###
+    raw_units[cc - 1] = max(raw_units.get(cc - 1, 0.0), tn.text_units("Cube value", 11))
+    if ls.cube_value is not None:
+        raw_units[cc] = max(raw_units.get(cc, 0.0), tn.text_units(value_text(ls.cube_value), 11))
+    for col_idx, lbl in ((c1, "Lines total"), (c1 + 1, value_text(total_amt)), (c1 + 2, "Tie-out"),
+                         (c1 + 3, "no cube value"), (c1 + 4, "Tolerance (NOK)"), (c1 + 5, "1.0")):
+        raw_units[col_idx] = max(raw_units.get(col_idx, 0.0), tn.text_units(lbl, 9))
+
+    col_w: dict[int, float] = {}
+    for j in range(max(len(cols), c2 + 1)):
+        fit = min(raw_units.get(j, 0.0) * TEXT_UNIT_PX / ws.max_digit_width * AUTOFIT_MARGIN, LINE_COL_MAX)
+        col_w[j] = max(min_w.get(j, 8.43), fit)
+        ws.set_column(j, j, col_w[j])
+
+    w_ae = sum(col_w[j] for j in range(5))
+    w_gk = sum(col_w[j] for j in range(c1 + 1, c2 + 1))
+    dims = str(ls.header_block[0][1]).lstrip("'") if ls.header_block else ""
+    fetched = str(ls.header_block[1][1]).lstrip("'") if len(ls.header_block) > 1 else ""
+    r1_lines = max(_wrap_count(ls.title, w_ae, 11, True), _wrap_count(dims, w_gk, 9, False))
+    r2_lines = max(_wrap_count(ls.source, w_ae, 11, False), _wrap_count(fetched, w_gk, 9, False))
+    if r1_lines > 1:
+        _row_height(ws, 1, r1_lines * 14 + 4)
+    if r2_lines > 1:
+        _row_height(ws, 2, r2_lines * 14 + 4)
+
     ws.freeze_panes(LINES_ROW, 0)
     ws.set_tab_color(DATA_TAB)
     end = _table_end(LINES_ROW, len(ls.rows))

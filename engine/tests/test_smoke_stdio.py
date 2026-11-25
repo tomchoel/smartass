@@ -1,8 +1,8 @@
 """The real stdio server (child_server.py, as run_server.py starts it): named smartass, exactly the v2 tools."""
 from stdio_util import initialize_and_list_tools
 
-TOOLS = {"fin_analyze", "fin_lookup", "fin_status", "fin_refresh", "fin_drill", "fin_critic", "xl_snapshot", "xl_revert",
-         "xl_tidy"}
+TOOLS = {"fin_analyze", "fin_lookup", "fin_tree", "fin_slice", "fin_drill", "fin_lines",
+         "fin_status", "fin_refresh", "fin_critic", "xl_snapshot", "xl_revert", "xl_tidy"}
 
 
 def test_stdio_server_is_smartass_with_the_v2_tools(tmp_path):

@@ -23,6 +23,7 @@ class _M(BaseModel):
 
 class Plan(_M):
     depth: Literal["quick", "standard", "deep"]
+    mode: Literal["adhoc", "pack"] = "adhoc"
     title: str = ""                   # the message title of the answer sheet ('' = purpose, else the question)
     purpose: str = ""
     hypotheses: list[str] = []
@@ -45,6 +46,7 @@ class Query(_M):
     compare: list[Compare] = []
     preliminary: bool = False
     products: list[str] = []          # empty: the cube's product total (no product dimension in the grid)
+    dimensions: dict[str, str | list[str]] = Field(default_factory=dict)   # optional extra cube dimensions (CP, PJ, SY...)
 
     @field_validator("periods", "plan_periods")
     @classmethod
@@ -70,7 +72,7 @@ class TableBlock(_M):
     type: Literal["table"]
     query: str
     title: str = ""
-    rows: Literal["metrics", "entities", "products"] = "metrics"
+    rows: Literal["metrics", "entities", "products", "accounts", "entities_x_metrics"] = "metrics"
     metrics: list[str] = []
     metric: str | None = None
     columns: list[Column] = ["value", "ly", "var", "var_pct"]
@@ -78,7 +80,7 @@ class TableBlock(_M):
     other: bool = True
     sort: Literal["none", "desc", "asc", "abs"] = "none"
     periods: list[str] | None = None   # column groups: one per period expression (e.g. closed, closed-ytd)
-    chain: bool = True                 # metric rows with EBITDA: the whole P&L chain, in chain order
+    chain: bool = True                 # metric rows with EBITDA: the whole P&L chain, in chain order (in pack or explicit)
     chain_added: list[str] = []        # the chain metrics complete_chain added (quoted after the rest)
     material: bool = True              # with a var column: a last Material marker column (1/0, live formula)
 
@@ -114,9 +116,9 @@ class TableBlock(_M):
                      for i, x in enumerate(cols) if x == c and any(y in BASE_SERIES for y in cols[:i])]
             if len(bases) != len(set(bases)):
                 raise ValueError(f"table: {c} appears twice against the same base column")
-        if "share" in cols and (self.rows == "metrics" or "value" not in cols):
-            raise ValueError("table: share needs rows 'entities' or 'products' and a 'value' column")
-        if self.rows != "metrics" and (not self.metric or "value" not in cols):
+        if "share" in cols and (self.rows in ("metrics", "entities_x_metrics") or "value" not in cols):
+            raise ValueError("table: share needs rows 'entities', 'products', or 'accounts' and a 'value' column")
+        if self.rows in ("entities", "products", "accounts") and (not self.metric or "value" not in cols):
             raise ValueError(f"table: rows '{self.rows}' needs 'metric' and a 'value' column")
         return self
 
@@ -174,24 +176,34 @@ class DriversBlock(_M):
     base: Compare = "ly"
     depth: int = Field(2, ge=1, le=4)
     drill: bool = False
+    by: Literal["entities", "accounts", "products"] = "entities"
+    cover: float = Field(0.8, gt=0.0, le=1.0)
+    max_per_level: int = Field(3, ge=1, le=25)
+    include_other: bool = False
 
 
 class LinesBlock(_M):
     type: Literal["lines"]
     title: str = ""
-    cell: dict[str, str]
-    group_by: Literal["supplier", "project", "account"] = "supplier"
-    top: int = Field(10, ge=1, le=50)
+    cell: dict[str, str] = Field(default_factory=dict)
+    drill_id: str | None = None
+    group_by: str | list[str] = "supplier"
+    top: int = Field(10, ge=1, le=200)
+    where: dict[str, str | list[str]] = Field(default_factory=dict)
+    exclude_reversals: bool = False
 
     @model_validator(mode="after")
     def _cell(self) -> "LinesBlock":
-        missing = [k for k in ("All Accounts", "All Time Periods") if k not in self.cell]
-        if missing:
-            raise ValueError(f"lines: cell needs {' and '.join(repr(k) for k in missing)} "
-                             "(plus 'All Entities' for the unit)")
-        bal = self.cell.get("All Balance Types")
-        if bal is not None and bal != "Periodic":
-            raise ValueError("lines: drill is Periodic only; leave 'All Balance Types' out or set 'Periodic'")
+        if not self.cell and not self.drill_id:
+            raise ValueError("lines: provide 'cell' or a cached 'drill_id'")
+        if self.cell:
+            missing = [k for k in ("All Accounts", "All Time Periods") if k not in self.cell]
+            if missing:
+                raise ValueError(f"lines: cell needs {' and '.join(repr(k) for k in missing)} "
+                                 "(plus 'All Entities' for the unit)")
+            bal = self.cell.get("All Balance Types")
+            if bal is not None and bal != "Periodic":
+                raise ValueError("lines: drill is Periodic only; leave 'All Balance Types' out or set 'Periodic'")
         return self
 
 
@@ -211,7 +223,7 @@ class Driver(_M):
 class CommentaryBlock(_M):
     type: Literal["commentary"]
     title: str = "Commentary"
-    key_points: list[str] = Field(default_factory=list, description="at most 5 (a new question refuses more)")
+    key_points: list[str] = Field(default_factory=list, description="at most 7 (a new question refuses more)")
     drivers: list[Driver] = []
 
 

@@ -452,7 +452,7 @@ def test_a_lines_block_with_no_lines_draws_an_empty_table(fake_target, calculate
     pre = _pre(lines_only_spec(), lines={"b0": ls})
     ls.rows.clear()                                     # prepare refuses an empty set; the job must still draw one
     out, _ = _job(pre, calculated)
-    assert out["sheets"] == ["Q1 Answer", "Q1 Data", "Q1 Lines b0"]
+    assert out["sheets"] == ["Q1 Answer", "Q1 Lines b0"]
     lines = fake_target.wb.Worksheets("Q1 Lines b0")
     (lo,) = lines.ListObjects
     assert lo.Name == "Lines_Q1_b0" and fakexl.rect_text(*lo.rect) == "A4:B5"

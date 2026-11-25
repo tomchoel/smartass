@@ -25,6 +25,7 @@ class GridRequest:
     version: str
     balance: str = "Periodic"
     products: tuple[str, ...] = ()        # empty: no product dimension (the cube's product total)
+    dimensions: tuple[tuple[str, tuple[str, ...]], ...] = ()
 
 
 def _depth(spec: AnalysisSpec, qid: str) -> int:
@@ -32,10 +33,22 @@ def _depth(spec: AnalysisSpec, qid: str) -> int:
     for b in map(data_block, spec.blocks):          # an own-data chart fetches like its table
         if getattr(b, "query", None) != qid:
             continue
-        if isinstance(b, DriversBlock):
+        if isinstance(b, DriversBlock) and b.by == "entities":
             d = max(d, b.depth)
         elif (isinstance(b, MatrixBlock) or (isinstance(b, RankingBlock) and b.rows == "entities")
-              or (isinstance(b, TableBlock) and b.rows == "entities")):
+              or (isinstance(b, TableBlock) and b.rows in ("entities", "entities_x_metrics"))):
+            d = max(d, 1)
+    return d
+
+
+def _account_depth(spec: AnalysisSpec, qid: str) -> int:
+    d = 0
+    for b in map(data_block, spec.blocks):
+        if getattr(b, "query", None) != qid:
+            continue
+        if isinstance(b, DriversBlock) and b.by == "accounts":
+            d = max(d, b.depth)
+        elif isinstance(b, TableBlock) and b.rows == "accounts":
             d = max(d, 1)
     return d
 
@@ -57,19 +70,32 @@ def _subtree(r: Resolver, cube: str, root: str, depth: int) -> tuple[str, ...]:
     return tuple(dict.fromkeys(out))
 
 
+def _extra_dims(dimensions: dict[str, str | list[str]]) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    return tuple(sorted((d, (v,) if isinstance(v, str) else tuple(dict.fromkeys(v)))
+                        for d, v in dimensions.items()))
+
+
 def requests(spec: AnalysisSpec, r: Resolver, closed: Closed) -> list[GridRequest]:
     reqs = []
     for q in spec.queries:
         by_balance: dict[str, list[str]] = {}
+        acc_depth = _account_depth(spec, q.id)
         for m in q.metrics:
-            by_balance.setdefault(r.balance(m), []).extend(r.members(m, q.cube))
+            bal = r.balance(m)
+            roots = r.members(m, q.cube)
+            if acc_depth:
+                expanded = [a for root in roots for a in _subtree(r, q.cube, root, acc_depth)]
+                by_balance.setdefault(bal, []).extend(expanded)
+            else:
+                by_balance.setdefault(bal, []).extend(roots)
         ents = _subtree(r, q.cube, q.entity, _depth(spec, q.id))
+        extra = _extra_dims(q.dimensions)
         for s in ("value", *q.compare):
             scen, ver = scenario(q.cube, s, r)
             for bal, accs in by_balance.items():
                 reqs.append(GridRequest(q.id, q.cube, tuple(dict.fromkeys(accs)), ents,
                                         tuple(label(m) for m in months(q, s, closed_for(closed, q.cube))), scen, ver, bal,
-                                        tuple(dict.fromkeys(q.products))))
+                                        tuple(dict.fromkeys(q.products)), extra))
     from .blocks.concept import concept_requests              # the concept blocks' own grids, after the queries'
     for q, g, s in concept_requests(spec, r):
         scen, ver = scenario(q.cube, s, r)

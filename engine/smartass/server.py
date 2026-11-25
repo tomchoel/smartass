@@ -27,34 +27,23 @@ from .model.validate import GuardError, guard_chart, guard_key_points
 from .exceljob import RestoreError, excel_job, read_stored, redraw_job, with_timings
 from .pipeline import run_prepare
 
-TOOL_NAMES = ("fin_analyze", "fin_lookup", "fin_status", "fin_refresh", "fin_drill", "fin_critic", "xl_snapshot",
-              "xl_revert", "xl_tidy")
+TOOL_NAMES = ("fin_analyze", "fin_lookup", "fin_tree", "fin_slice", "fin_drill", "fin_lines",
+              "fin_status", "fin_refresh", "fin_critic", "xl_snapshot", "xl_revert", "xl_tidy")
 
 INSTRUCTIONS = """smartass (read-only towards Oracle EPM: FinMax/FinLite actuals, FinPlan plan/forecast).
-1) fin_lookup first when a word is not an exact member: metrics, entities (business areas, FinPlan division totals),
-KPIs, vague words (-> the options to ask), grains ('per customer' -> what is answerable), rules (kind 'rule').
-Every hit carries caveats; 'via' = inherited from that member. Pass them on.
-2) New question: fin_analyze(spec) with an AnalysisSpec v2 - plan (depth, purpose, hypotheses), queries (cube,
-metrics, entity, periods e.g. 'closed-ytd', compare ly | budget | forecast; budget/forecast only in FinPlan),
-blocks (table, kpi_tiles, trend, matrix, bridge, ranking, drivers, commentary). An EBITDA bridge uses every P&L
-step: Revenue, COGS, Opex, Other items (FinMax) - otherwise 'Other / unexplained' is large.
-3) Follow-up: fin_analyze(patch=..., q=n) - a JSON merge patch on the stored spec (lists like blocks are replaced
-whole); default q = the active Q<n> Answer, else the latest. 4) Monthly packs: fin_refresh() re-runs every v2
-answer in the workbook to the latest closed month (relative periods roll forward). Refresh replaces Q<n> sheets;
-formulas pointing at them are re-pointed.
-5) Quote numbers only from key_values; explain material lines from drivers evidence or label them a hypothesis.
-Every answer has at least one chart block (kind by message); the sheet shows Key points first, the plan is not
-drawn. Fix each reply.layout finding by patch.
-6) Editing a workbook the user has open with Excel MCP: xl_snapshot first, then edit, xl_revert to undo; finish
-with xl_tidy (zero BLOCK findings). 7) After the server reloads, Claude Code may keep an old tool schema: if a
-parameter seems missing, ask the user to run /mcp and reconnect smartass. Repeated errors: fin_status(restart=True).
-Ledger lines: a lines block (cell with All Accounts, All Entities, All Time Periods; Periodic; FinLite) or
-fin_drill(cell) ranks suppliers, projects or accounts and ties them to the cube.
-Critic: after a standard/deep answer run fin_critic(q) (brief + rubric), store the six
-criterion scores with fin_critic(q, scores, notes) (the server computes the score), patch and re-score while it
-returns passed false (at most 2 rounds); the method is in MCP prompts (plan,
-critic, monthly-pack, variance-commentary, gl-extract, prodreg-input) and past answers in fin_lookup(kind='answer').
-Sheet text is English; answer the user in their language. The user's own workbooks are never saved."""
+Two-tier workflow — explore first without touching Excel, then build audited Excel deliverables when ready:
+Tier 1 (Explore, zero Excel):
+- fin_lookup: resolve metrics, business areas, KPIs, grains, caveats ('via' = inherited), rules, past answers (kind='answer').
+- fin_tree: browse any cube dimension (including All Counterparts, Projects, Systems) & account/entity subtrees.
+- fin_slice: run read-only multi-dimensional EPM cube queries (expand children/leaves, compare ly/budget/forecast).
+- fin_drill (target omitted) -> fin_lines: drill FinLite cell (45 columns, cached in SQLite), then filter (where, period ranges, exclude_reversals), multi-group, or run read-only SELECT SQL over `lines`.
+Tier 2 (Excel Deliverable):
+- fin_analyze(spec | patch, q): AnalysisSpec v2 -> live-formula Excel + Sheet=model readback. mode='adhoc' (default) skips forced P&L chain/chart gates and lets you use Query.dimensions, TableBlock (entities_x_metrics, accounts), DriversBlock (by accounts/products, cover, max_per_level), and filtered multi-group LinesBlock. Set mode='pack' for formal monthly packs (P&L chain, COGS bridge steps, charts).
+- Follow-up: fin_analyze(patch=..., q=n) (JSON merge patch; lists replace whole). Monthly roll-forward: fin_refresh().
+- Editing an open workbook with Excel MCP: xl_snapshot first, xl_revert to undo, xl_tidy (zero BLOCK findings).
+- Quote numbers ONLY from verified smartass tool outputs (fin_slice, fin_lines, fin_drill, fin_analyze); never guess or hand-extrapolate.
+- Critic (mode='pack' or depth='deep'): fin_critic(q) then score 1-5 on criteria 1-6 (patch up to 2 rounds); methods in MCP prompts.
+- Reload schema changes via /mcp reconnect; repeated errors -> fin_status(restart=True). User workbooks are never saved."""
 
 mcp = MCPServer("smartass", instructions=INSTRUCTIONS, lifespan=kit.lifespan)
 
@@ -119,6 +108,45 @@ def fin_lookup(query: str, kind: str = "any", cube: str | None = None) -> dict:
     return lookup(query, kind, cube)
 
 
+@_register(kit.LOCAL)
+def fin_tree(cube: str | None = None, dimension: str | None = None, parent: str | None = None,
+             query: str | None = None, depth: int = 1, leaves_only: bool = False, limit: int = 100) -> dict:
+    """Explore EPM cube dimensions, hierarchies, card attributes, and caveats from the local atlas (zero Excel).
+    With no arguments (or cube only): lists all built dimensions (including Counterparts, Projects, Systems, etc.).
+    With parent: walks children/descendants up to depth. With query: searches members within cube/dimension."""
+    from .data.slice import browse_tree
+    atlas.need_atlas()
+    with contextlib.closing(_resolver()) as r:
+        out = browse_tree(r, cube=cube, dimension=dimension, parent=parent, query=query,
+                          depth=depth, leaves_only=leaves_only, limit=limit)
+        from .knowledge.resolver import freshness_notes
+        warn = freshness_notes(r.db)
+    return {**out, "warnings": warn} if warn else out
+
+
+@_register(kit.READ)
+async def fin_slice(cube: str, rows: dict[str, str | list[str]], cols: dict[str, str | list[str]] | None = None,
+                    pov: dict[str, str] | None = None, periods: str | list[str] | None = None,
+                    compare: list[str] | None = None, preliminary: bool = False,
+                    expand: dict[str, str] | None = None, suppress_missing: bool = True, limit: int = 200) -> dict:
+    """Tier 1 read-only multi-dimensional EPM cube slice (zero Excel side-effects, no 40-row key_values limit).
+    Supports any cube dimension (All Counterparts, All Projects, All Systems, All Reserves, All Functions, Products,
+    etc.). expand e.g. {'All Accounts': 'children'} or {'All Entities': 'leaves'} auto-walks hierarchy members.
+    compare e.g. ['ly'] or ['budget', 'forecast'] computes deterministic variance columns in Python."""
+    from .data.slice import run_slice
+    atlas.need_atlas()
+    provider = _provider()
+
+    def _run():
+        closed = provider.closed_months()
+        fy = closed["FinPlan"][0] % 100
+        with contextlib.closing(_resolver(fy)) as r:
+            return run_slice(provider, r, closed, cube=cube, rows=rows, cols=cols, pov=pov, periods=periods,
+                             compare=compare, preliminary=preliminary, expand=expand,
+                             suppress_missing=suppress_missing, limit=limit)
+    return await asyncio.to_thread(_run)
+
+
 def _provider():
     from .epm import svhttp
 
@@ -159,21 +187,57 @@ async def _drill(cell: dict):
     return await drillstep.drill(cell, connection="FinLite")
 
 
+def _cache_drill_result(cell: dict, res) -> str | None:
+    """Persist a DrillResult into the session SQLite store so fin_lines can slice/query all 45 columns."""
+    try:
+        from .epm import line_store
+        return line_store.store_drill(
+            cell, list(res.rows), list(res.columns),
+            cube_value=getattr(res, "cell_value", None),
+            reconciliation=dict(getattr(res, "reconciliation", {}) or {}),
+            warnings=list(getattr(res, "warnings", []) or []),
+            source=str(getattr(res, "source", "") or ""),
+        )
+    except Exception:   # noqa: BLE001 - cache indexing failure never breaks a drill
+        return None
+
+
 async def _line_sets(spec: AnalysisSpec) -> tuple[dict, list[str]]:
-    """Drill every lines block: {'b<i>': LineSet} and the drills' warnings. Project grouping marks each line's
-    booked project (INITIATIVE) first. A drill with 0 lines still gives a LineSet (prepare refuses it, with the reason)."""
+    """Drill every lines block (or reuse a cached drill_id / apply block-level filter): {'b<i>': LineSet} + warnings."""
+    from .epm import line_store
     from .model.lines import add_initiative
     blocks = [(i, b) for i, b in enumerate(spec.blocks) if isinstance(b, LinesBlock)]
-    results = await asyncio.gather(*[_drill(b.cell) for _, b in blocks])      # independent cells: drilled concurrently
+    to_drill = [(i, b) for i, b in blocks if not getattr(b, "drill_id", None)]
+    drilled_results = await asyncio.gather(*[_drill(b.cell) for _, b in to_drill]) if to_drill else []
+    by_idx = {}
+    for (i, b), res in zip(to_drill, drilled_results):
+        _cache_drill_result(b.cell, res)
+        by_idx[i] = res
+
     out: dict[str, LineSet] = {}
     notes: list[str] = []
-    for (i, b), res in zip(blocks, results):
-        rows, cols = res.rows, list(res.columns)
-        if b.group_by == "project":
+    for i, b in blocks:
+        res = by_idx.get(i)
+        if res is None:
+            meta, filtered_rows = line_store.load_rows(
+                b.drill_id, where=getattr(b, "where", None),
+                exclude_reversals=bool(getattr(b, "exclude_reversals", False)),
+            )
+            cols = list(meta["columns"])
+            rows = filtered_rows
+            cube_val = meta["reconciliation"].get("cube_value")
+            rec = meta["reconciliation"]
+            warns = list(meta["warnings"])
+        else:
+            rows, cols = list(res.rows), list(res.columns)
+            cube_val = res.cell_value
+            rec = res.reconciliation
+            warns = list(res.warnings)
+        group_cols = [b.group_by] if isinstance(b.group_by, str) else list(b.group_by)
+        if "project" in group_cols:
             cols = add_initiative(rows, cols)
-        out[f"b{i}"] = LineSet(f"b{i}", rows, cols, res.cell_value, reconciliation=res.reconciliation,
-                                warnings=list(res.warnings), cell=b.cell)
-        notes += res.warnings
+        out[f"b{i}"] = LineSet(f"b{i}", rows, cols, cube_val, reconciliation=rec, warnings=warns, cell=b.cell)
+        notes += warns
     return out, notes
 
 
@@ -246,8 +310,9 @@ def _default_target(target: str) -> str:
 
 
 async def _new_question(spec: AnalysisSpec, target: str) -> dict:
-    guard_chart(spec)                  # new questions only: every other path gets an implicit chart
-    guard_key_points(spec)             # new questions only: a stored spec keeps its first 5 (a warning)
+    if spec.plan.mode == "pack":
+        guard_chart(spec)                  # pack mode keeps strict chart + key point caps
+        guard_key_points(spec)
     pre, notes = await _prepare(spec.model_dump(), _provider(), spec, complete=True)
     return _with_notes(await _draw_job(lambda h: excel_job(h, pre, target), "fin_analyze", spec.question), notes)
 
@@ -279,16 +344,71 @@ async def fin_analyze(spec: AnalysisSpec | None = None, patch: dict | None = Non
 
 
 @_register(kit.WRITE)
-async def fin_drill(cell: dict, group_by: str = "supplier", top: int = 10, target: str = "session",
-                    ctx: Context | None = None) -> dict:
-    """Ledger lines behind one cube cell (FinLite, Periodic): ranked by supplier, project or account, with Other,
-    lines without the group, the lines total, the cube value and the gap. cell: {"All Accounts": "ac.C60",
-    "All Entities": "un.SY.2TEC", "All Time Periods": "Sep 26"} (a parent period such as 'Yr 26' works).
-    Same sheets and checks as a lines block in fin_analyze."""
-    spec = AnalysisSpec.model_validate({
-        "version": 2, "question": f"Ledger lines behind {' / '.join(cell.values())}", "plan": {"depth": "quick"},
-        "queries": [], "blocks": [{"type": "lines", "cell": cell, "group_by": group_by, "top": top}]})
-    return await _new_question(spec, target)
+async def fin_drill(cell: dict, group_by: str = "supplier", top: int = 10, target: str | None = None,
+                    refresh: bool = False, ctx: Context | None = None) -> dict:
+    """Ledger lines behind one cube cell (FinLite, Periodic).
+    Explore mode (default target=None): drills if not already cached in this session (or refresh=True), stores all
+    columns in the SQLite line store (`drill_id`), and returns reconciliation + full multi-facet profile without
+    touching Excel — follow up with `fin_lines(drill_id, ...)` to filter, aggregate, or query SQL!
+    Report mode (target e.g. 'session' or 'active'): builds Q<n> Answer + Q<n> Lines in Excel as a lines block."""
+    if target is not None:
+        spec = AnalysisSpec.model_validate({
+            "version": 2, "question": f"Ledger lines behind {' / '.join(cell.values())}", "plan": {"depth": "quick"},
+            "queries": [], "blocks": [{"type": "lines", "cell": cell, "group_by": group_by, "top": top}]})
+        return await _new_question(spec, target)
+
+    from .epm import drill_lines as dl, line_store
+    from .epm.drillcore import drill_cell_defaults
+    canon_cell, _ = drill_cell_defaults(cell)
+    cached = None if refresh else line_store.find_cached(canon_cell)
+    if cached is not None:
+        meta, rows = line_store.load_rows(cached["drill_id"])
+        profile = dl.profile(rows, top=top) if rows else None
+        return {
+            "drill_id": cached["drill_id"],
+            "cached": True,
+            "cell": meta["cell"],
+            "reconciliation": meta["reconciliation"],
+            "columns": meta["columns"],
+            "profile": profile,
+            "warnings": meta["warnings"],
+            "hint": "Use fin_lines(drill_id=..., ...) to filter, multi-group, or query SQL across all columns.",
+        }
+
+    res = await _drill(cell)
+    did = _cache_drill_result(getattr(res, "cell", canon_cell), res)
+    profile = getattr(res, "profile", None)
+    if profile is None and getattr(res, "rows", None):
+        profile = dl.profile(res.rows, top=top)
+    return {
+        "drill_id": did,
+        "cached": False,
+        "cell": getattr(res, "cell", canon_cell),
+        "reconciliation": res.reconciliation,
+        "columns": list(res.columns),
+        "profile": profile,
+        "warnings": list(res.warnings),
+        "hint": "Use fin_lines(drill_id=..., ...) to filter, multi-group, or query SQL across all columns.",
+    }
+
+
+@_register(kit.LOCAL)
+def fin_lines(drill_id: str, sql: str | None = None, where: dict | None = None,
+              group_by: str | list[str] | None = None, order_by: str = "-abs_sum",
+              limit: int = 50, offset: int = 0, exclude_reversals: bool = False,
+              include_descriptions: bool = True) -> dict:
+    """Query or aggregate any cached FinLite drill (`drill_id` from `fin_drill`) across all ledger columns (zero Excel).
+    Structured mode: filter via `where` (e.g. {'Period': ['Jan 26','Feb 26']} or {'period_from':'Jan 26',
+    'period_to':'Oct 26'}, {'Entity':'...'}, {'ACCOUNT':'...'}, {'JE_SOURCE':'Payables'}), set exclude_reversals=True,
+    and aggregate over any column list via `group_by`.
+    SQL mode: pass a read-only `SELECT ... FROM lines ...` query via `sql` (e.g. multi-column pivot, reversal checks).
+    Always returns the parent drill's cube reconciliation alongside filtered subtotals."""
+    from .epm import line_store
+    return line_store.query_lines(
+        drill_id, sql=sql, where=where, group_by=group_by, order_by=order_by,
+        limit=limit, offset=offset, exclude_reversals=exclude_reversals,
+        include_descriptions=include_descriptions,
+    )
 
 
 REFRESH_SAYS = ("warnings", "layout", "text_fixes")     # what a question's redraw says, kept per question when any
@@ -499,7 +619,7 @@ def _knowledge_text(rel: str) -> str:
 def _guide_prompt(name: str, rel: str, desc: str):
     def render() -> str:
         return (f"smartass {name} ({desc.split(':')[0].lower()}): apply this with the fin_* tools; quote numbers "
-                f"only from key_values.\n\n" + _knowledge_text(rel))
+                f"only from verified tool outputs.\n\n" + _knowledge_text(rel))
     render.__name__ = name.replace("-", "_")
     mcp.prompt(name=name, description=desc)(render)
 

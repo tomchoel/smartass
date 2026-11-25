@@ -237,13 +237,14 @@ def counted(ctx: Ctx, q: Query, kids, parent: str | None = None) -> list[str]:
 
 
 def children_sum(ctx: Ctx, q: Query, metric: str, kids, series: str = "value",
-                 base_months: list | None = None) -> Expr:
+                 base_months: list | None = None, parent: str | None = None) -> Expr:
     """What the children add up to in the parent: weight +1 children minus weight -1 children; weight 0 skipped."""
-    w = {k: ctx.resolver.weight(k, q.cube, q.entity) for k in kids}
+    par = parent or q.entity
+    w = {k: ctx.resolver.weight(k, q.cube, par) for k in kids}
     plus = tuple(k for k in kids if w[k] > 0)
     minus = tuple(k for k in kids if w[k] < 0)
     if not plus and not minus:
-        raise ValueError(f"{q.entity}: no child takes part in the consolidation")
+        raise ValueError(f"{par}: no child takes part in the consolidation")
     neg = ctx.pick(q, metric, series, minus, base_months) if minus else None
     if not plus:
         return Neg(neg)
@@ -264,6 +265,15 @@ def negligible(ctx: Ctx, q: Query, metric: str, cols: list[str], entity: str | N
     return True
 
 
+def _sort_and_slice(items: list[str], val_fn, is_negligible, sort: str, top: int | None) -> tuple[list[str], list[str]]:
+    if sort != "none" or top:
+        items = [x for x in items if not is_negligible(x)]
+        order = {"desc": lambda x: -val_fn(x), "asc": val_fn, "abs": lambda x: -abs(val_fn(x)),
+                 "none": lambda x: -abs(val_fn(x))}[sort]
+        items.sort(key=order)
+    return (items[:top], items[top:]) if top else (items, [])
+
+
 def entity_lines(ctx: Ctx, q: Query, metric: str, cols: list[str], key: str, *, top: int | None = None,
                  other: bool = True, sort: str = "none", bm: list | None = None) -> list[Line]:
     r = ctx.resolver
@@ -274,12 +284,9 @@ def entity_lines(ctx: Ctx, q: Query, metric: str, cols: list[str], key: str, *, 
     def val(e: str) -> float:
         return ctx.value(ctx.pick(q, metric, "value", e)) or 0.0
 
-    if sort != "none" or top:          # a ranking: a child with nothing in any column is no rank (Tom 06.11.2026)
-        kids = [e for e in kids if not negligible(ctx, q, metric, cols, entity=e)]
-        order = {"desc": lambda e: -val(e), "asc": val, "abs": lambda e: -abs(val(e)),
-                 "none": lambda e: -abs(val(e))}[sort]
-        kids.sort(key=order)
-    shown, rest = (kids[:top], kids[top:]) if top else (kids, [])
+    shown, rest = _sort_and_slice(
+        kids, val, lambda e: negligible(ctx, q, metric, cols, entity=e), sort, top,
+    )
     lines = [Line(f"e{i}", r.label(e, q.cube),
                   row_cells(ctx, q, metric, cols, key, f"e{i}", entity=e, total_key="total", bm=bm),
                   metric=metric, entity=e, code=code_of(e))
@@ -304,6 +311,61 @@ def entity_lines(ctx: Ctx, q: Query, metric: str, cols: list[str], key: str, *, 
         check[vi] = Sub(children_sum(ctx, q, metric, counted(ctx, q, every), base_months=bm[vi] if bm else None),
                         Ref(ck(key, "total", vi)))
         lines.append(Line("check", "Check: children = parent", check, kind="check"))
+    return lines
+
+
+def account_lines(ctx: Ctx, q: Query, metric: str, cols: list[str], key: str, *, top: int | None = None,
+                  other: bool = True, sort: str = "none", bm: list | None = None) -> list[Line]:
+    """Expand a parent metric/account into its child accounts (or member list) with Other, Total, and Check."""
+    r = ctx.resolver
+    roots = list(r.members(metric, q.cube))
+    if len(roots) == 1:
+        parent_acc = roots[0]
+        raw_kids = list(r.children(parent_acc, q.cube))
+        every = list(raw_kids)
+        kids = [k for k in raw_kids if r.weight(k, q.cube, parent_acc) != 0]
+        target_accs = kids or [parent_acc]
+    else:
+        parent_acc = None
+        every = []
+        target_accs = roots
+
+    def val(a: str) -> float:
+        return ctx.value(ctx.pick(q, a, "value")) or 0.0
+
+    shown, rest = _sort_and_slice(
+        list(target_accs), val, lambda a: negligible(ctx, q, a, cols), sort, top,
+    )
+    lines = [Line(f"a{i}", r.label(a, q.cube),
+                  row_cells(ctx, q, a, cols, key, f"a{i}", total_key="total", bm=bm),
+                  metric=a, entity=q.entity, code=code_of(a))
+             for i, a in enumerate(shown)]
+    if rest and other:
+        cells: list[Expr | None] = []
+        for j, c in enumerate(cols):
+            if c in ("value",) + BASES:
+                cells.append(Sub(Ref(ck(key, "total", j)),
+                                 Sum(tuple(Ref(ck(key, f"a{i}", j)) for i in range(len(shown))))))
+            elif c == GAP:
+                cells.append(None)
+            else:
+                cells.append(derived(c, cols, key, "other", total_key="total", j=j))
+        lines.append(Line("other", "Other accounts", cells, metric=metric))
+    total_label = r.label(parent_acc, q.cube) if parent_acc else metric_label(r, metric, q.cube)
+    lines.append(Line("total", total_label,
+                      row_cells(ctx, q, metric, cols, key, "total", total_key="total", bm=bm),
+                      kind="grand", metric=metric, entity=q.entity,
+                      code=code_of(parent_acc) if parent_acc else ""))
+    if parent_acc and every:
+        counted_kids = [k for k in every if r.weight(k, q.cube, parent_acc) != 0]
+        if counted_kids:
+            vi = cols.index("value")
+            w = {k: r.weight(k, q.cube, parent_acc) for k in counted_kids}
+            terms = [Neg(ctx.pick(q, k, "value", base_months=bm[vi] if bm else None)) if w[k] < 0
+                     else ctx.pick(q, k, "value", base_months=bm[vi] if bm else None) for k in counted_kids]
+            check: list[Expr | None] = [None] * len(cols)
+            check[vi] = Sub(Sum(tuple(terms)), Ref(ck(key, "total", vi)))
+            lines.append(Line("check", "Check: child accounts = parent", check, kind="check"))
     return lines
 
 

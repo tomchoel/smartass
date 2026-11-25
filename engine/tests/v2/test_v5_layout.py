@@ -133,7 +133,8 @@ def test_thresholds_hold_every_param_with_addresses():
     for key in res.params:
         r, c = _cell(p.params[key])
         assert isinstance(p.cells[(r, c)], (int, float)) and c >= FIRST_COL
-    head = next(r for (r, c), v in p.cells.items() if c == LABEL_COL and v == "Metric")
+    head = next(r for (r, c), v in p.cells.items()
+                if c == LABEL_COL and v == "Metric" and p.cells.get((r, FIRST_COL)) == "Var % floor")
     heads = [p.cells.get((head, c)) for c in range(FIRST_COL, FIRST_COL + 4)]
     assert heads == ["Var % floor", "Materiality", "Materiality %", "Materiality with %"]
     metrics = {k.split(".", 1)[1] for k in res.params}
@@ -352,3 +353,93 @@ def test_thresholds_table_never_lands_on_a_gap_marker_or_helper_column():
             r, c = _cell(p.params[k])
             letter = L.col_letter(c)
             assert p.widths[letter] == L.W_NUM and c <= last and letter not in p.helper_cols, (blocks, k)
+
+
+def test_kpi_tiles_codes_and_contextual_col_headers():
+    _, _, p = run([{"type": "kpi_tiles", "query": "fm", "metrics": ["Revenue", "Opex", "EBITDA"]}])
+    head = next(r["row"] for r in p.rows if r["kind"] == "header" and r.get("end_col") == "G")
+    assert p.cells[(head, CODE_COL)] == "Code" and p.cells[(head, LABEL_COL)] == "Metric"
+    assert p.cells.get((head + 1, CODE_COL)) == "C30"
+
+    d = spec_dict(blocks=[
+        {"type": "lines", "cell": {"All Accounts": "ac.C60", "All Entities": "un.SY.2TEC", "All Time Periods": "Yr 26"},
+         "group_by": "account", "top": 2},
+        {"type": "trend", "query": "fm", "metrics": ["EBITDA"], "series": ["value"]},
+    ])
+    from smartass.model.frame import Frame
+    from smartass.model.lines import LineSet
+    s = AnalysisSpec.model_validate(d)
+    ls = LineSet("b0", [{"ACCOUNT": "43200", "ACCOUNT_NAME": "Consultancy", "AMOUNT": -100.0}],
+                 ["ACCOUNT", "ACCOUNT_NAME", "AMOUNT"], cube_value=-100.0)
+    fr = Frame(ytd_frame().facts)
+    fr.lines["b0"] = ls
+    res = compute(s, resolver(), OCT, fr)
+    lp = layout(3, s, res, stock=set(), subtitle="SUB")
+    colheads = [(lp.cells.get((r["row"], CODE_COL)), lp.cells.get((r["row"], LABEL_COL)))
+                for r in lp.rows if r["kind"] == "header" and (r["row"], CODE_COL) in lp.cells]
+    assert colheads == [("Code", "Account"), ("Code", "Period")]
+
+
+def test_mixed_cube_subtitle_and_source_mention_finlite():
+    s, res, p = run([GROUPED])
+    from smartass.model.spec import Query
+    s.queries.append(Query(id="fl", cube="FinLite", entity="un.SY.2BUS", periods="closed-ytd", metrics=["Revenue"]))
+    sub = answer_subtitle(s, res, OCT)
+    assert "FinMax" in sub and "FinLite" in sub
+    p2 = layout(3, s, res, stock={"fl"}, subtitle=sub)
+    src = p2.cells[(dict(p2.zones)["source"], TEXT_COL)]
+    assert "FinMax" in src and "FinLite" in src
+
+
+def test_lines_only_source_narrow_print_area_and_chart_excludes_children():
+    from test_v2_pipeline import LINE_CELL, lines_only_spec
+    from smartass.model.frame import Frame
+    from smartass.model.lines import LineSet
+    d = lines_only_spec()
+    s = AnalysisSpec.model_validate(d)
+    rows = [
+        {"AP_CUSTOMER_NAME": "Named AS", "JE_SOURCE": "AP", "JOURNAL_NAME": "AP1", "ACCOUNT": "43200", "AMOUNT": -120.0},
+        {"AP_CUSTOMER_NAME": "", "JE_SOURCE": "ABA", "JOURNAL_NAME": "ABA", "ACCOUNT": "43100", "AMOUNT": -80.0},
+        {"AP_CUSTOMER_NAME": "", "JE_SOURCE": "MANUAL", "JOURNAL_NAME": "M1", "ACCOUNT": "43300", "AMOUNT": -40.0},
+    ]
+    fr = Frame([])
+    fr.lines["b0"] = LineSet("b0", rows, sorted(rows[0]), cube_value=-240.0, cell=LINE_CELL)
+    res = compute(s, resolver(), CLOSED, fr)
+    p = layout(3, s, res, stock=set(), subtitle="SUB")
+    src = p.cells[(dict(p.zones)["source"], TEXT_COL)]
+    assert "Lines_Q3_b0" in src and "Data_Q3" not in src
+    # No level=1 journal rows in chart categories / series
+    aba_row = next(r for (r, c), v in p.cells.items() if c == LABEL_COL and "ABA" in str(v))
+    for ch in p.charts:
+        assert f"{aba_row}" not in ch.cat_range and all(f"{aba_row}" not in rng for _, rng, _ in ch.series)
+    # 2-col narrow sheet (compare=[] -> only Value & Share % in D:E): print_area_col stays within E
+    d_narrow = spec_dict(blocks=[{"type": "ranking", "query": "fm", "metric": "Opex", "top": 2, "compare": None}])
+    d_narrow["queries"][0]["metrics"] = ["Opex"]
+    d_narrow["queries"][0]["periods"] = "closed-ytd"
+    d_narrow["queries"][0]["compare"] = []
+    s_narrow = AnalysisSpec.model_validate(d_narrow)
+    r_narrow = compute(s_narrow, resolver(), OCT, ytd_frame())
+    p_rank = layout(3, s_narrow, r_narrow, stock=set(), subtitle="SUB")
+    assert p_rank.print_last_col == "E" and p_rank.print_area_col == "E"
+
+
+def test_apply_report_bounds_borders_on_narrow_table_and_excludes_col_a_and_helpers():
+    from fakexl import Workbook
+    from smartass.render.excel import answer_grid, answer_roles
+    from smartass.xl import styling
+    _, _, p = run([{"type": "kpi_tiles", "query": "fm", "metrics": ["Revenue", "Opex"]}, GROUPED])
+    wb = Workbook(["Q3 Answer"])
+    ws = wb.order[0]
+    r0, c0, g = answer_grid(p)
+    for i, row in enumerate(g):
+        for j, v in enumerate(row):
+            ws.put(r0 + i, c0 + j, v)
+    roles = answer_roles(p)
+    assert styling.apply_report(ws, roles) == []
+    # Narrow kpi_tiles ends at G (col 7), while GROUPED sheet last_col is M; helper cols must also stay TN Tom
+    kpi_head = next(r for r in roles["rows"] if r["kind"] == "header" and r.get("end_col") == "G")
+    assert ws.cells.get((kpi_head["row"], 1), {}).get("Style") in (None, "TN Tom")
+    assert ws.cells.get((kpi_head["row"], 8), {}).get("Style") == "TN Tom"
+    for hcol in p.helper_cols:
+        hc = L.col_number(hcol)
+        assert ws.cells.get((kpi_head["row"], hc), {}).get("Style") in (None, "TN Tom")

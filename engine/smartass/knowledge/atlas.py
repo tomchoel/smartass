@@ -1,6 +1,7 @@
 """The cube atlas: every dimension tree of FinMax / FinLite / FinPlan in a local SQLite catalogue."""
 from __future__ import annotations
 
+import re
 import sqlite3
 import time
 from pathlib import Path
@@ -357,3 +358,104 @@ def ancestors(db, connection: str, name: str) -> list[str]:
         if cur:
             chain.append(cur)
     return chain
+
+
+def dimensions_info(db, connection: str | None = None) -> list[dict]:
+    """Summary of built dimensions in atlas.db, optionally narrowed to one cube/connection."""
+    sql = ("SELECT connection, dimension, built_at, n, error FROM build "
+           "WHERE (? IS NULL OR connection = ?) ORDER BY connection, dimension")
+    out = []
+    for c, d, b, n, err in db.execute(sql, (connection, connection)).fetchall():
+        out.append({
+            "connection": c,
+            "dimension": d,
+            "members": n,
+            "built_at": time.strftime("%Y-%m-%d %H:%M", time.localtime(b)) if b else None,
+            **({"error": err} if err else {}),
+        })
+    return out
+
+
+def _clean_label(name: str, label: str | None) -> str:
+    if not label:
+        return name
+    return re.sub(r"\s*\([^()]*\)\s*$", "", label).strip() or name
+
+
+def tree(db, connection: str, dimension: str | None = None, parent: str | None = None, depth: int = 1,
+         leaves_only: bool = False, limit: int = 200) -> list[dict]:
+    """Walk hierarchy nodes under `parent` (or top levels of `dimension`) up to `depth` hops, enriched with card & alias."""
+    max_depth = max(1, min(int(depth), 6))
+    lim = max(1, min(int(limit), 1000))
+    root = parent or dimension
+    if not root:
+        return []
+    dim_filter = dimension
+    if not dim_filter and root:
+        row = db.execute("SELECT dimension FROM member WHERE connection=? AND name=? COLLATE NOCASE LIMIT 1",
+                         (connection, root)).fetchone()
+        if row:
+            dim_filter = row[0]
+
+    has_real = _has_real(db)
+    parents_set = {r[0] for r in db.execute(
+        "SELECT DISTINCT parent FROM member WHERE connection=? AND parent IS NOT NULL", (connection,))}
+    cards = {(n, p): (op, tb, at, sh) for n, p, op, tb, at, sh in db.execute(
+        "SELECT name, parent, operator, time_balance, account_type, shared FROM card WHERE connection=?",
+        (connection,))}
+    real_map: dict[tuple[str, str], tuple[str | None, str | None]] = {}
+    if has_real:
+        for n, p, alias, storage in db.execute(
+                "SELECT r.name, r.parent, r.alias, r.storage FROM member_real r JOIN build b "
+                "ON b.connection = r.connection AND b.dimension = r.dimension AND b.built_at = r.built_at "
+                "WHERE r.connection=?", (connection,)):
+            real_map.setdefault((n, p or ""), (alias, storage))
+
+    queue: list[tuple[str, int]] = [(root, 0)]
+    seen_edges: set[tuple[str, str]] = set()
+    out: list[dict] = []
+    while queue and len(out) < lim:
+        cur_parent, lvl = queue.pop(0)
+        next_lvl = lvl + 1
+        sql = ("SELECT dimension, name, label, parent, depth FROM member WHERE connection=? AND parent=? "
+               + ("AND dimension=? " if dim_filter else "") + "ORDER BY ord")
+        params = (connection, cur_parent, dim_filter) if dim_filter else (connection, cur_parent)
+        rows = db.execute(sql, params).fetchall()
+        if not rows and lvl == 0 and dim_filter and cur_parent.casefold() == dim_filter.casefold():
+            sql_top = ("SELECT dimension, name, label, parent, depth FROM member WHERE connection=? AND dimension=? "
+                       "AND depth <= 1 ORDER BY depth, ord")
+            rows = db.execute(sql_top, (connection, dim_filter)).fetchall()
+        for d, name, label, par, mem_depth in rows:
+            if (par or "", name) in seen_edges:
+                continue
+            seen_edges.add((par or "", name))
+            is_parent = name in parents_set
+            if not leaves_only or not is_parent:
+                item: dict = {
+                    "dimension": d,
+                    "name": name,
+                    "label": _clean_label(name, label),
+                    "parent": par,
+                    "level": next_lvl,
+                    "depth": mem_depth,
+                    "has_children": is_parent,
+                }
+                c = cards.get((name, par or ""))
+                if c:
+                    op, tb, at, sh = c
+                    item["card"] = {k: v for k, v in (
+                        ("operator", op), ("time_balance", tb), ("account_type", at),
+                        ("shared", bool(sh) if sh is not None else None)) if v not in (None, "")}
+                r_info = real_map.get((name, par or ""))
+                if r_info:
+                    alias, storage = r_info
+                    if alias:
+                        item["alias"] = alias
+                    if storage:
+                        item["storage"] = storage
+                out.append(item)
+                if len(out) >= lim:
+                    break
+            if next_lvl < max_depth and is_parent:
+                queue.append((name, next_lvl))
+    return out

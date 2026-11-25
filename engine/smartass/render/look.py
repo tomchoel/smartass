@@ -169,6 +169,10 @@ def answer_look(plan: SheetPlan, texts: dict[tuple[int, int], str] | None = None
     rows = {int(r["row"]): r for r in roles["rows"]}
     last_row = max(max(rows, default=0), int(roles["last_row"]))
     codes = {col_number(c) for c in roles["code_cols"]}
+    helpers = sorted(col_number(c) for c in roles.get("helper_cols", []))
+    helper_set = set(helpers)
+    bounded = bool(roles.get("print_last_col") or roles.get("print_footer")
+                   or any("end_col" in x for x in roles["rows"]))
 
     cells: dict[tuple[int, int], CellLook] = {}
     heights: dict[int, float] = {}
@@ -178,8 +182,17 @@ def answer_look(plan: SheetPlan, texts: dict[tuple[int, int], str] | None = None
     for r in range(1, last_row + 1):
         spec = rows.get(r, {"kind": "blank"})
         kind = spec["kind"]
+        span_end = col_number(spec["end_col"]) if spec.get("end_col") else (text_last if bounded else last)
         if kind in ROW_STYLE:
-            row = {c: CellLook(ROW_STYLE[kind]) for c in range(1, last + 1)}
+            st = ROW_STYLE[kind]
+            if kind == "blank":
+                row = {c: CellLook("TN Tom") for c in range(1, last + 1)}
+            elif bounded:
+                end = span_end if kind == "section" else text_last
+                row = {c: CellLook(st if first_label <= c <= end and c not in helper_set else "TN Tom")
+                       for c in range(1, last + 1)}
+            else:
+                row = {c: CellLook(st) for c in range(1, last + 1)}
             heights[r] = ROW_HEIGHT.get(kind, 15)
             txt = shown.text((r, first_label)) if kind == "title" else None
             if txt:                       # a long message title wraps inside the table width
@@ -188,10 +201,14 @@ def answer_look(plan: SheetPlan, texts: dict[tuple[int, int], str] | None = None
                     heights[r] = n * 21 + 4
                     merges.append((r, first_label, text_last))
         elif kind == "subhead":
-            row = {c: CellLook("TN Underseksjon" if c >= first_label else "TN Tom") for c in range(1, last + 1)}
+            end = span_end if bounded else last
+            row = {c: CellLook("TN Underseksjon" if first_label <= c <= end and c not in helper_set else "TN Tom")
+                   for c in range(1, last + 1)}
             heights[r] = 15
         elif kind == "text":
-            row = {c: CellLook("TN Tekst" if c >= first_label else "TN Tom") for c in range(1, last + 1)}
+            end = text_last if bounded else last
+            row = {c: CellLook("TN Tekst" if first_label <= c <= end and c not in helper_set else "TN Tom")
+                   for c in range(1, last + 1)}
             heights[r] = _text_height(shown.text((r, first_label)), text_width)
             if _formula(plan, (r, first_label)):
                 text_rows.append(r)
@@ -199,8 +216,13 @@ def answer_look(plan: SheetPlan, texts: dict[tuple[int, int], str] | None = None
                 merges.append((r, first_label, text_last))
         elif kind == "header":
             nc = {col_number(c) for c in spec["num_cols"]} if "num_cols" in spec else \
-                set(range(labels[-1] + 1, last + 1))
-            row = {c: CellLook("TN Kolonne tall" if c in nc else "TN Kolonne") for c in range(1, last + 1)}
+                set(range(labels[-1] + 1, (span_end if bounded else last) + 1))
+            if bounded:
+                row = {c: CellLook(("TN Kolonne tall" if c in nc else "TN Kolonne")
+                                   if first_label <= c <= span_end and c not in helper_set else "TN Tom")
+                       for c in range(1, last + 1)}
+            else:
+                row = {c: CellLook("TN Kolonne tall" if c in nc else "TN Kolonne") for c in range(1, last + 1)}
             lines = 1
             for c in range(1, last + 1):
                 t = shown.text((r, c))
@@ -208,7 +230,7 @@ def answer_look(plan: SheetPlan, texts: dict[tuple[int, int], str] | None = None
                     lines = max(lines, tn.wrap_lines(str(t), widths[c], 9, True) or 4)
             heights[r] = max(26, lines * 12 + 3)
         elif kind in EMPH:
-            row = _line_row(r, spec, last, first_label, labels, codes, shown)
+            row = _line_row(r, spec, last, first_label, labels, codes, shown, span_end, helper_set, bounded)
             heights[r] = 15
             if spec.get("status_col"):
                 checks.append((r, col_number(spec["status_col"])))
@@ -216,7 +238,6 @@ def answer_look(plan: SheetPlan, texts: dict[tuple[int, int], str] | None = None
             raise ValueError(f"row {r}: unknown kind {kind!r}")
         cells |= {(r, c): cl for c, cl in row.items()}
 
-    helpers = sorted(col_number(c) for c in roles.get("helper_cols", []))
     if helpers:                           # chart helper columns: grey, they are not the answer
         for r in range(1, last_row + 1):
             for c in range(helpers[0], helpers[-1] + 1):
@@ -245,7 +266,7 @@ def page_breaks(plan: SheetPlan, look: SheetLook, heights: dict[int, float] | No
 
 
 def _line_row(r: int, spec: dict, last: int, first_label: int, labels: list[int], codes: set[int],
-              shown: _Shown) -> dict[int, CellLook]:
+              shown: _Shown, span_end: int, helper_set: set[int], bounded: bool) -> dict[int, CellLook]:
     """A table row (line, sum, grand, check): the number kind's style and format, the status column, the labels,
     the code column grey and left."""
     emph = EMPH[spec["kind"]]
@@ -262,6 +283,8 @@ def _line_row(r: int, spec: dict, last: int, first_label: int, labels: list[int]
             row[c] = CellLook(styling._style_for(k, emph), num_format=fmt)
         elif c == status:
             row[c] = CellLook("TN Tekst tallkolonne" if not emph else label)
+        elif bounded and (c > span_end or c in helper_set):
+            row[c] = CellLook("TN Tom")
         elif c in labels:
             row[c] = CellLook(label)
         elif shown.numeric((r, c)):

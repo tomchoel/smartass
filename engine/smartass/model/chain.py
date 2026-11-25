@@ -26,8 +26,17 @@ def _resolves(r, name: str, cube: str) -> bool:
 
 
 def chained(b: TableBlock, labels: list[str]) -> bool:
-    """Does the chain apply to this table: metric rows, chain on, and a metric that resolves to EBITDA."""
+    """Does the P&L ordering/typing apply to this table: metric rows, chain on, and EBITDA present."""
     return b.rows == "metrics" and b.chain and TOP in labels
+
+
+def _should_inject(b: TableBlock, labels: list[str], mode: str) -> bool:
+    """Only auto-inject missing 7 P&L lines in mode='pack' or when `chain: true` was explicitly set."""
+    if not chained(b, labels):
+        return False
+    if mode == "adhoc" and "chain" not in getattr(b, "model_fields_set", set()):
+        return False
+    return True
 
 
 def complete_chain(spec: AnalysisSpec, r) -> AnalysisSpec:
@@ -37,13 +46,14 @@ def complete_chain(spec: AnalysisSpec, r) -> AnalysisSpec:
     from .blocks.common import metric_label     # blocks.table imports this module
     out = spec.model_copy(deep=True)
     queries = {q.id: q for q in out.queries}
+    mode = getattr(out.plan, "mode", "pack")
     for b in out.blocks:
         if not isinstance(b, TableBlock):
             continue
         q = queries[b.query]
         ms = list(b.metrics or q.metrics)
         labels = [metric_label(r, m, q.cube) for m in ms]
-        if not chained(b, labels):
+        if not _should_inject(b, labels, mode):
             continue
         in_query = {metric_label(r, m, q.cube): m for m in q.metrics}
         add = [in_query.get(c, c) for c in CHAIN if c not in labels and (c in in_query or _resolves(r, c, q.cube))

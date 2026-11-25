@@ -8,8 +8,8 @@ from ..chain import CHAIN, KINDS, chained
 from ..context import Ctx
 from ..periods import resolve
 from ..spec import KpiBlock, TableBlock
-from .common import (GAP, BlockOut, Line, add_material, entity_lines, metric_code, metric_label, product_lines, row_cells,
-                     scenario_heads)
+from .common import (GAP, BlockOut, Line, account_lines, add_material, code_of, counted, entity_lines, metric_code,
+                     metric_label, negligible, product_lines, row_cells, scenario_heads)
 
 
 def build_table(b: TableBlock, ctx: Ctx, key: str) -> BlockOut:
@@ -35,19 +35,58 @@ def build_table(b: TableBlock, ctx: Ctx, key: str) -> BlockOut:
         heads += h
         keys += k if g == len(groups) - 1 else [f"{expr} · {x}" for x in k]
     bm_or_none = bm if b.periods else None
-    by = {"entities": "by unit", "products": "by product"}.get(b.rows)   # 'Opex by unit', never just 'Table'
-    default = f"{metric_label(ctx.resolver, b.metric, q.cube)} {by}" if by and b.metric else "Table"
+    by = {"entities": "by unit", "products": "by product", "accounts": "by account",
+          "entities_x_metrics": "by unit and metric"}.get(b.rows)
+    if b.rows == "entities_x_metrics":
+        default = f"{ctx.resolver.label(q.entity, q.cube)} — {by}"
+    else:
+        default = f"{metric_label(ctx.resolver, b.metric, q.cube)} {by}" if by and b.metric else "Table"
     out = BlockOut(key, "table", b.title or default, heads, cols=cols, query=q.id, keys=keys)
     if b.rows == "entities":
         out.lines = entity_lines(ctx, q, b.metric, cols, key, top=b.top, other=b.other, sort=b.sort, bm=bm_or_none)
     elif b.rows == "products":
         out.lines = product_lines(ctx, q, b.metric, cols, key, top=b.top, other=b.other, sort=b.sort,
                                   bm=bm_or_none)
+    elif b.rows == "accounts":
+        out.lines = account_lines(ctx, q, b.metric, cols, key, top=b.top, other=b.other, sort=b.sort,
+                                  bm=bm_or_none)
+    elif b.rows == "entities_x_metrics":
+        out.lines = entities_x_metrics_lines(b, ctx, q, cols, key, bm_or_none)
     else:
         out.lines = metric_lines(b, ctx, q, cols, key, bm_or_none)
     if b.material:
         add_material(out, ctx.resolver)
     return out
+
+
+def entities_x_metrics_lines(b: TableBlock, ctx: Ctx, q, cols: list[str], key: str, bm: list | None) -> list[Line]:
+    """Compare each child entity (plus parent total) across multiple metrics side-by-side under clean headings."""
+    r = ctx.resolver
+    ms = list(b.metrics or q.metrics)
+    kids = counted(ctx, q, list(r.children(q.entity, q.cube)))
+    if b.sort != "none" or b.top:
+        primary = ms[0]
+        kids = [e for e in kids if any(not negligible(ctx, q, m, cols, entity=e) for m in ms)]
+        def val(e: str) -> float:
+            return ctx.value(ctx.pick(q, primary, "value", e)) or 0.0
+        order = {"desc": lambda e: -val(e), "asc": val, "abs": lambda e: -abs(val(e)),
+                 "none": lambda e: -abs(val(e))}[b.sort]
+        kids.sort(key=order)
+        if b.top:
+            kids = kids[:b.top]
+    units = [*kids, q.entity] if kids else [q.entity]
+    lines: list[Line] = []
+    pad = [None] * len(cols)
+    for ei, ent in enumerate(units):
+        is_total = ent == q.entity and bool(kids)
+        lines.append(Line(f"h{ei}", r.label(ent, q.cube), list(pad), kind="heading", entity=ent, code=code_of(ent)))
+        for mi, m in enumerate(ms):
+            lkey = f"em{ei}_{mi}"
+            lines.append(Line(lkey, metric_label(r, m, q.cube),
+                              row_cells(ctx, q, m, cols, key, lkey, entity=ent, bm=bm),
+                              kind="sum" if is_total else "line", level=1, metric=m, entity=ent,
+                              code=metric_code(r, m, q.cube)))
+    return lines
 
 
 def metric_lines(b: TableBlock, ctx: Ctx, q, cols: list[str], key: str, bm: list | None) -> list[Line]:
@@ -76,5 +115,5 @@ def build_kpi(b: KpiBlock, ctx: Ctx, key: str) -> BlockOut:
     for i, m in enumerate(b.metrics):
         out.lines.append(Line(f"k{i}", metric_label(ctx.resolver, m, q.cube),
                               row_cells(ctx, q, m, cols, key, f"k{i}"), metric=m,
-                              entity=q.entity))
+                              entity=q.entity, code=metric_code(ctx.resolver, m, q.cube)))
     return out

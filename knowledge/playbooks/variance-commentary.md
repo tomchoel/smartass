@@ -6,7 +6,8 @@ from data, in controller language.
 ## Our rules (smartass v2)
 
 1. **Which lines.** The reply's `material` list and the `critic_brief` say which lines need a driver; revenue,
-   personnel cost and EBITDA are always commented. Quote numbers only from `key_values`.
+   personnel cost and EBITDA are always commented. Quote numbers only from verified tool outputs (`fin_slice`,
+   `fin_lines`, `fin_drill`, `fin_analyze` `key_values`).
 2. **Comparison.** P&L and cost against the same period last year (FinMax) unless the question asks for plan.
    Actual vs budget or forecast is done entirely in FinPlan, with a FinMax EBITDA line as the reconciliation to
    actuals; never mix FinMax actuals with FinPlan plan in one variance.
@@ -16,8 +17,9 @@ from data, in controller language.
 4. **Drivers basis.** Each driver in the `commentary` block is
    - `basis: "data"` with `evidence` = the cell key it rests on (a `drivers` block line, a `lines` block group,
      a table cell such as `b1.m1.2`), or
-   - `basis: "hypothesis"`, shown on the sheet as not verified in data. Prefer data: add a `drivers` block
-     (`drill: true` at deep) or a `lines` block before writing a hypothesis.
+   - `basis: "hypothesis"`, shown on the sheet as not verified in data. Prefer data: investigate first with
+     `fin_slice` / `fin_drill` -> `fin_lines`, or add a `drivers` block (`by: "entities"` or `"accounts"`,
+     `drill: true` at deep) or a `lines` block before writing a hypothesis.
 5. **Caveats.** Every warn or block caveat in the reply (reorg moves, abolished units, account traps) is named in
    a key point or a driver, by its id or its wording. A block caveat changes the conclusion; say how.
 6. **Key points.** 3–5, biggest mover first, each one sentence with the amount and the reason.

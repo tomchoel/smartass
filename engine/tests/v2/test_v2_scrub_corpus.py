@@ -140,7 +140,7 @@ def _rest(tmp_path, monkeypatch) -> list[str]:
 
 
 def _key_points() -> list[str]:
-    block = CommentaryBlock(type="commentary", title="What drove EBITDA?", key_points=list("abcdefg"))
+    block = CommentaryBlock(type="commentary", title="What drove EBITDA?", key_points=list("abcdefgh"))
     return free_points(SimpleNamespace(blocks=[block]))[1]
 
 
@@ -189,7 +189,7 @@ def test_the_corpus_holds_every_kind(corpus):
                  "Smart View did not know ac.C99", "FinMax: no data for", "#NoAccess (left out)",
                  "lost (cold sign-in) and retried", "Text broken in EPM", "Lines differ from the cube by",
                  "split pieces' cube values differ", "No drill-through lines", "All Entities not given",
-                 "has no label for All Entities member un.SY.E9", "7 key points, the first 5"):
+                 "has no label for All Entities member un.SY.E9", "8 key points, the first 7"):
         assert part in joined, part
 
 

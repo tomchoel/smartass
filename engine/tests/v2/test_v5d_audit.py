@@ -31,7 +31,8 @@ def _row_of(p, label):
 
 def test_thresholds_table_has_only_columns_with_values_and_parameters_get_their_own_table():
     s, res, p = run([{"type": "table", "query": "fm", "title": "P&L"}])
-    head = _row_of(p, "Metric")
+    head = next(r for (r, c), v in p.cells.items()
+                if c == L.LABEL_COL and v == "Metric" and p.cells.get((r, L.CODE_COL)) != "Code")
     cols = [c for (r, c), v in p.cells.items() if r == head and c >= L.FIRST_COL and v]
     assert cols == list(range(L.FIRST_COL, L.FIRST_COL + len(cols)))          # no gap between the headers
     body = [r for r in range(head + 1, head + 20) if isinstance(p.cells.get((r, L.LABEL_COL)), str)

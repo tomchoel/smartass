@@ -126,8 +126,8 @@ def test_a_first_answer_with_a_lines_sheet_builds_it_into_the_new_workbook(new_b
     out, _ = _job(_pre(lines_only_spec(), lines={"b0": ls}), calculated)
     wb = new_book.app.Workbooks(Path(out["workbook"]).name)
     assert out["checks"]["sheet_equals_model"] == "OK" and seen["base"].date_format == movein.SHORT_DATE
-    assert [ws.Name for ws in wb.order] == ["Q1 Answer", "Q1 Data", "Q1 Lines b0", "Sources", "_svmeta"]
-    assert [lo.Name for ws in wb.order for lo in ws.ListObjects] == ["Data_Q1", "Lines_Q1_b0"]
+    assert [ws.Name for ws in wb.order] == ["Q1 Answer", "Q1 Lines b0", "Sources", "_svmeta"]
+    assert [lo.Name for ws in wb.order for lo in ws.ListObjects] == ["Lines_Q1_b0"]
     log = wb.Worksheets("Sources")
     assert [log.Range(f"C{r}").Value for r in (2, 3)] == ["b0", None]            # the drill's row (no query)
     assert "#'Q1 Lines b0'!A1" in str(log.Range("M2").Value)

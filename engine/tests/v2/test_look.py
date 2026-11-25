@@ -386,3 +386,22 @@ def test_style_props_gives_the_concrete_format_of_a_named_style():
     note = style_props("TN Note")
     assert (note["italic"], note["indent"], note["font_size"], note["text_wrap"]) == (True, 1, 9, False)
     assert style_props("TN Tekst")["text_wrap"] is True and style_props("TN Tekst")["valign"] == "top"
+
+
+def test_section_and_title_borders_do_not_bleed_into_col_a_helpers_or_narrow_empty_cols():
+    from test_v5_layout import BRIDGE, GROUPED, run
+    _, _, p = run([{"type": "kpi_tiles", "query": "fm", "metrics": ["Revenue"]}, GROUPED])
+    lk = answer_look(p)
+    title_row = 1
+    assert lk.cells[(title_row, 1)].style == "TN Tom"
+    assert lk.cells[(title_row, 2)].style == "TN Tittel"
+    for hcol in p.helper_cols:
+        assert lk.cells[(title_row, col_number(hcol))].style == "TN Tom"
+    kpi_head = next(r["row"] for r in p.rows if r["kind"] == "header" and r.get("end_col") == "G")
+    assert lk.cells[(kpi_head, col_number("G"))].style in ("TN Kolonne", "TN Kolonne tall")
+    assert lk.cells[(kpi_head, col_number("H"))].style == "TN Tom"
+    # Even a single-table narrow sheet with helpers skips Col A and helpers
+    _, _, pb = run([BRIDGE])
+    lkb = answer_look(pb)
+    for hcol in pb.helper_cols:
+        assert lkb.cells[(1, col_number(hcol))].style == "TN Tom"

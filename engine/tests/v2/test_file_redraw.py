@@ -15,7 +15,7 @@ import pytest
 from test_file_job import BATCHES, SUPPLIERS, _batches, _calculated_sheet, _point_plan, fit
 from test_look import lines_ranking
 from test_v2_pipeline import LINE_CELL, FakeProvider, lines_only_spec
-from v2util import facts, resolver, spec_dict
+from v2util import BASE_SPEC, facts, resolver, spec_dict
 
 import fakexl
 from smartass import exceljob, pipeline, server
@@ -38,7 +38,14 @@ def _pre(spec=None, lines=None):
 
 
 def _lines_pre():
-    """An answer with a lines block: its own 'Q<n> Lines b0' sheet and table Lines_Q<n>_b0."""
+    """An answer with a query table and a lines block: its own 'Q<n> Data', 'Q<n> Lines b0' and Lines_Q<n>_b0."""
+    ls = LineSet("b0", list(SUPPLIERS), ["AP_CUSTOMER_NAME", "AMOUNT"], cube_value=-100.0, cell=LINE_CELL)
+    spec = spec_dict(blocks=[{"type": "lines", "cell": LINE_CELL, "group_by": "supplier", "top": 2}, BASE_SPEC["blocks"][0]])
+    return _pre(spec, lines={"b0": ls})
+
+
+def _lines_only_pre():
+    """A lines-only answer (no queries): omits 'Q<n> Data' and has 'Q<n> Answer' + 'Q<n> Lines b0'."""
     ls = LineSet("b0", list(SUPPLIERS), ["AP_CUSTOMER_NAME", "AMOUNT"], cube_value=-100.0, cell=LINE_CELL)
     return _pre(lines_only_spec(), lines={"b0": ls})
 
@@ -210,6 +217,23 @@ def test_in_the_users_workbook_the_question_keeps_its_places_between_the_users_s
     assert moves == ["Q1 Lines b0", "Q1 Data"]                               # only new sheets move, to their places
 
 
+def test_lines_only_question_omits_data_sheet_and_redraws_cleanly(monkeypatch, tmp_home, moves):
+    b = Book(monkeypatch, fakexl.Workbook(["Sources"]), ours=True)
+    out1 = b.answer(_lines_only_pre())
+    assert out1["sheets"] == ["Q1 Answer", "Q1 Lines b0"]
+    assert _names(b.wb) == ["Q1 Answer", "Q1 Lines b0", "Sources", "_svmeta"]
+    moves.clear()
+    out2 = b.follow_up(_lines_only_pre(), 1)
+    assert out2["sheets"] == ["Q1 Answer", "Q1 Lines b0"]
+    assert _names(b.wb) == ["Q1 Answer", "Q1 Lines b0", "Sources", "_svmeta"] and moves == []
+    out3 = b.follow_up(_pre(), 1)
+    assert out3["sheets"] == ["Q1 Answer", "Q1 Data"]
+    assert _names(b.wb) == ["Q1 Answer", "Q1 Data", "Sources", "_svmeta"]
+    out4 = b.follow_up(_lines_only_pre(), 1)
+    assert out4["sheets"] == ["Q1 Answer", "Q1 Lines b0"]
+    assert _names(b.wb) == ["Q1 Answer", "Q1 Lines b0", "Sources", "_svmeta"]
+
+
 def test_the_users_active_sheet_on_the_old_answer_lands_on_the_new_answer(own_book):
     wb = own_book.wb
     wb.Worksheets("Q3 Answer").Activate()
@@ -242,8 +266,9 @@ def test_the_sources_log_keeps_its_rows_and_logs_the_new_pull(own_book):
     assert {r: new[r] for r in old} == old                                   # earlier rows are never edited
     added = [v for r, v in new.items() if r not in old]
     assert len(added) == 1 and added[0][1:3] == ("Q3", "fm")                  # the new pull, query id 'fm'
-    assert fakexl.hyperlink(added[0][12]) == ("#'Q3 Data'!A1", "Q3 Data") and not added[0][13]   # a first pull in Q3
-    assert q3 and fakexl.hyperlink(new[q3[0]][12]) == ("#'Q3 Lines b0'!A1", "Q3 Lines b0")   # names as text
+    assert fakexl.hyperlink(added[0][12]) == ("#'Q3 Data'!A1", "Q3 Data")
+    assert fakexl.hyperlink(added[0][13]) == (f"#'Sources'!A{q3[0]}", f"row {q3[0]}")
+    assert q3 and fakexl.hyperlink(new[q3[-1]][12]) == ("#'Q3 Lines b0'!A1", "Q3 Lines b0")   # names as text
 
 
 def test_the_stored_spec_of_the_question_is_rewritten_without_a_drawn_range(own_book):
@@ -480,13 +505,13 @@ def test_a_restore_that_fails_is_a_restore_error(own_book, monkeypatch):
     assert "Q3 Answer" not in _names(own_book.wb)                  # the new sheets are gone; the old stay parked
 
 
-@pytest.mark.parametrize("missing", ["Q3 Answer", "Q3 Data"])
-def test_a_question_without_its_answer_or_data_sheet_is_refused_by_name(own_book, missing, tmp_home):
+@pytest.mark.parametrize("q, missing", [(3, "Q3 Answer"), (2, "Q2 Data")])
+def test_a_question_without_its_answer_or_data_sheet_is_refused_by_name(own_book, q, missing, tmp_home):
     wb = own_book.wb
     wb.order.remove(wb.Worksheets(missing))
     before = fakexl.snapshot(wb)
     with pytest.raises(InputError, match=f"'{missing}'"):
-        own_book.follow_up(_pre(), 3)
+        own_book.follow_up(_pre(), q)
     assert fakexl.snapshot(wb) == before and not _temp_files(tmp_home) and len(wb.Application.Workbooks) == 1
 
 

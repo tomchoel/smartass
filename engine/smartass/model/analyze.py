@@ -126,7 +126,7 @@ def _uniquify(outs: list[BlockOut]) -> None:
             ln.label = lab
 
 
-def compute(spec: AnalysisSpec, r: Resolver, closed: Closed, frame: Frame, kv_limit: int = 40) -> Result:
+def compute(spec: AnalysisSpec, r: Resolver, closed: Closed, frame: Frame, kv_limit: int = 250) -> Result:
     soft = guard_spec(spec, r, closed)
     ctx = Ctx(spec, r, closed, frame)
     # chart blocks are built after the rest (keys stay b<i>): a chart title never renames a table (_uniquify), and

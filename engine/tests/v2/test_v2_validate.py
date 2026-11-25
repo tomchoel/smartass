@@ -101,3 +101,39 @@ def test_closed_dict_without_a_used_cube_is_a_guard_error():
         with pytest.raises(GuardError, match="no closed month for cube FinMax") as e:
             call()
         assert e.value.fix == "pass the closed month for every cube used"
+
+
+def test_sign_findings_info_on_cost_centre_or_small_revenue_critical_elsewhere():
+    from smartass.model.analyze import compute
+    from smartass.model.resolver import StaticResolver
+    base = resolver()
+    r = StaticResolver(
+        metrics=base.metrics,
+        tree={"un.SY.2BUS": ("un.SY.4BUS_B",), "un.SY.4BUS_B": ("un.SY.5BMT_T",)},
+        labels={"un.SY.2BUS": "2BUS", "un.SY.5BMT_T": "5BMT_T"},
+    )
+
+    def check(entity: str, rev: float, ebitda: float, opex: float = -10.0):
+        d = spec_dict(blocks=[{"type": "table", "query": "fm", "columns": ["value"]}])
+        d["queries"][0]["entity"] = entity
+        d["queries"][0]["metrics"] = ["Revenue", "Opex", "EBITDA"]
+        d["queries"][0]["periods"] = "Sep 26"
+        d["queries"][0]["compare"] = []
+        s = AnalysisSpec.model_validate(d)
+        fr = Frame([
+            Fact("FinMax", "fm", "ac.C30", entity, "Sep 26", "Actual", "", rev),
+            Fact("FinMax", "fm", "ac.C50S", entity, "Sep 26", "Actual", "", opex / 2),
+            Fact("FinMax", "fm", "ac.C60", entity, "Sep 26", "Actual", "", opex / 2),
+            Fact("FinMax", "fm", "ac.EBITDA", entity, "Sep 26", "Actual", "", ebitda),
+        ])
+        res = compute(s, r, CLOSED, fr)
+        return [f for f in res.findings if "should be" in f.text]
+
+    cc_neg = check("un.SY.5BMT_T", rev=-5.0, ebitda=-100.0)
+    assert len(cc_neg) == 2 and all(f.severity == "info" for f in cc_neg)
+    small_top = check("un.SY.2BUS", rev=10_000.0, ebitda=-50.0)
+    assert len(small_top) == 1 and small_top[0].severity == "info"
+    big_top = check("un.SY.2BUS", rev=100_000.0, ebitda=-50.0)
+    assert len(big_top) == 1 and big_top[0].severity == "critical"
+    pos_cost = check("un.SY.5BMT_T", rev=100_000.0, ebitda=50.0, opex=15.0)
+    assert len(pos_cost) == 1 and pos_cost[0].severity == "critical"

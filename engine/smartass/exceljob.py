@@ -367,17 +367,18 @@ def _record_status(b, wbn, q: int, pre: Prepared, header, key: str = "status"):
     """The calculated OK/DIFF the Sources log and the layout check need, read in the finish batch b (operations that
     may fail: an unreadable cell is no status): each query's Data header status cell and each drill's tie-out on its
     lines sheet. The reader gives ({query id: (cell, value)}, {alias: value})."""
+    q_status = header.status if header is not None else {}
     with b.attempt():
-        if header.status:
+        if q_status:
             data = wbn.Worksheets(f"Q{q} Data")
-            for qid, cell in header.status.items():
+            for qid, cell in q_status.items():
                 b.ret(data.Range(cell).Value2, f"{key}.query {qid}")
         for a in pre.frame.lines:
             b.ret(wbn.Worksheets(f"Q{q} Lines {a}").Range(datasheet.LINES_STATUS).Value2, f"{key}.lines {a}")
 
     def status(res) -> tuple[dict, dict]:
         v = res.values
-        return ({qid: (cell, v.get(f"{key}.query {qid}")) for qid, cell in header.status.items()},
+        return ({qid: (cell, v.get(f"{key}.query {qid}")) for qid, cell in q_status.items()},
                 {a: v.get(f"{key}.lines {a}") for a in pre.frame.lines})
     return status
 
@@ -443,14 +444,17 @@ def _style_findings(plan, block) -> list[str]:
 
 
 def _answer_plan(q: int, pre: Prepared, fetched: datetime):
-    """The Answer's layout with its print footer (one timestamp per draw); more than 5 free Key points are a
-    warning."""
+    """The Answer's layout with its print footer (one timestamp per draw); more than 7 free Key points or truncated
+    engine Key points are a warning."""
     free, too_many = free_points(pre.spec)
-    pre.warnings += [w for w in too_many if w not in pre.warnings]
+    kp_warnings: list[str] = []
     plan = layout(q, pre.spec, pre.result, stock=_stock(pre),
                   subtitle=answer_subtitle(pre.spec, pre.result, pre.closed),
                   const=constant_columns(pre.frame), caveats=pre.caveats,
-                  key_points=partial(key_points, stock=_stock(pre), free=free))
+                  key_points=partial(key_points, stock=_stock(pre), free=free, warnings=kp_warnings))
+    for w in too_many + kp_warnings:
+        if w not in pre.warnings:
+            pre.warnings.append(w)
     plan.footer = answer_footer(fetched)
     return plan
 
@@ -1050,13 +1054,14 @@ def _file_draw(job, pre: Prepared) -> dict:
 
 def _build(q: int, pre: Prepared, path, fetched: datetime, user: str, stamp: str, base, book=None) -> tuple:
     """The answer's sheets built as a file at path in base (stage 'build'), a workbook of its own with book
-    (xlsx.NewBook): (BuiltFile, the Answer's plan, the Data header). More rows than a sheet has is a GuardError with
-    its fix."""
+    (xlsx.NewBook): (BuiltFile, the Answer's plan, the Data header or None for lines-only). More rows than a sheet
+    has is a GuardError with its fix."""
     with stage("build"):
-        header = header_rows(q, pre.spec, pre, fetched, user)
+        has_data = bool(pre.spec.queries)
+        header = header_rows(q, pre.spec, pre, fetched, user) if has_data else None
         plan = _answer_plan(q, pre, fetched)
         lines = [_lines_sheet(q, ls, stamp) for ls in pre.frame.lines.values()]
-        data = xlsx.DataSheet(f"Q{q} Data", header, data_grid(pre.frame))
+        data = xlsx.DataSheet(f"Q{q} Data", header, data_grid(pre.frame)) if has_data else None
         try:
             built = xlsx.build(path, f"Q{q} Answer", plan, data, lines, base=base, book=book)
         except xlsx.TooManyRows as e:
@@ -1251,12 +1256,16 @@ def _point_back(job) -> None:
 
 
 def _question_parts(book, q: int) -> tuple[list[str], list[str]]:
-    """(sheets, tables) a follow-up replaces, from the Book: 'Q<q> Answer' and 'Q<q> Data' (always named, so park
-    refuses a missing one by its name), every 'Q<q> Lines b<i>' present, and the answer's tables on those sheets
-    (Data_Q<q>, Lines_Q<q>_<alias>: sheets.answer_sheets / answer_tables)."""
+    """(sheets, tables) a follow-up replaces, from the Book: 'Q<q> Answer', 'Q<q> Data' (always named unless the
+    question is lines-only, i.e. has 'Q<q> Lines ...' sheets and no 'Q<q> Data'), every 'Q<q> Lines b<i>' present,
+    and the answer's tables on those sheets (Data_Q<q>, Lines_Q<q>_<alias>: sheets.answer_sheets / answer_tables)."""
     from .xl import sheets
     names = sheets.answer_sheets(book.names(), q)
-    want = [f"Q{q} Answer", f"Q{q} Data"] + [n for n in names if n not in (f"Q{q} Answer", f"Q{q} Data")]
+    has_lines = any(n.startswith(f"Q{q} Lines ") for n in names)
+    want = [f"Q{q} Answer"]
+    if f"Q{q} Data" in names or not has_lines:
+        want.append(f"Q{q} Data")
+    want += [n for n in names if n not in want]
     return want, sheets.answer_tables(q, [n for n, s in book.tables() if s in names])
 
 

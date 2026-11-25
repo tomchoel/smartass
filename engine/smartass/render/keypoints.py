@@ -1,13 +1,9 @@
 # engine/smartass/render/keypoints.py
-"""The Key points (sub-spec 5 §1.4): one live formula per point that builds the number sentence from cells of the
-main table's last column group, plus the cause row from the commentary drivers, then the agent's free points (static
-text), at most 5 in total. Plugs into layout(key_points=...); the number of points never depends on addr. Pure.
-The sentence uses the base the line is material against (vs PY/BU/FC); a stock metric (FTE) says FTE, no MNOK; an
-amount under 1 m says NOK in whole kroner (layout.unit_of: never '-0,0 MNOK'). A ledger lines main block (a
-lines-only answer) gets its top 3 groups with their share and the lines total with the gap to the cube. A trend main
-block gets one point per metric (its last month, the total for a NOK flow, against the base); a concept its total and
-its largest items. A base missing on every line says 'no PY (new)', never the whole value as the variance. A line
-without a driver gets no cause row."""
+"""The Key points (sub-spec 5 §1.4): one live formula per point that builds the number sentence from cells of up to 2
+main tables' last column group, plus the cause row from the commentary drivers, then the agent's free points (static
+text), at most 7 in total. Agent free points are prioritized so they are never silently dropped; if engine points are
+trimmed to fit, a warning is emitted. Plugs into layout(key_points=...); the number of points never depends on addr.
+Pure."""
 from __future__ import annotations
 
 import textwrap
@@ -17,7 +13,7 @@ from ..model.blocks.common import SCEN, BlockOut, Line, base_of, ck, group_start
 from ..model.spec import CommentaryBlock
 from .layout import HUNDRED, NOTE_WIDTH, UNIT_MNOK, _last_period, sheet_label, unit_of
 
-MAX_POINTS = 5
+MAX_POINTS = 7
 MAX_MATERIAL = 4
 TOP_LINES = 3                    # a lines main block: its top 3 groups
 BULLET = "•  "
@@ -130,10 +126,10 @@ def _cause(ln: Line, drivers: Iterable, material: bool = False) -> str | None:
     return f"{INDENT}{d.text} (hypothesis — not verified in data)"
 
 
-def _chosen(main: BlockOut, res) -> list[tuple[Line, bool, str | None]]:
+def _chosen(main: BlockOut, res, *, allow_fallback: bool = True) -> list[tuple[Line, bool, str | None]]:
     """(line, material, base) for the material lines of the main table by |variance| descending (one point per
-    line, at most 4, against the base of its largest variance); else the grand line, else the first line (first
-    base)."""
+    line, at most 4, against the base of its largest variance); else (when allow_fallback) the grand line, else the
+    first line (first base)."""
     lines = main.lines
     if main.type == "drivers":          # the total and the leaf drivers; a middle level only sums its children
         from ..model.blocks.drivers import leaf_keys
@@ -152,32 +148,91 @@ def _chosen(main: BlockOut, res) -> list[tuple[Line, bool, str | None]]:
             keys.sort(key=lambda k: not (by_key[k].kind == "grand" or (main.type == "drivers"
                                                                       and by_key[k].level == 0)))
         return [(by_key[k], True, seen[k][1]) for k in keys]
+    if not allow_fallback:
+        return []
     lines = [ln for ln in main.lines if ln.kind != "check"]
     top = next((ln for ln in lines if ln.kind == "grand"), lines[0] if lines else None)
     return [(top, False, None)] if top is not None else []
 
 
+def _tables_for_points(main: BlockOut | None, res) -> list[BlockOut]:
+    """Up to 2 main tables for Key points, in spec order (excluding bridge/trend/chart/chart_data when primary
+    tables exist), else [main]."""
+    outs = getattr(res, "outs", None)
+    if not outs or main is None or main.type in ("lines", "trend"):
+        return [main] if main is not None else []
+    tables = [o for o in outs if o.type not in ("chart", "chart_data", "bridge", "trend")
+              and o.lines and "value" in o.cols]
+    if main in tables:
+        return tables[:2]
+    return ([main] + [t for t in tables if t is not main])[:2]
+
+
+def _abs_var(res, t: BlockOut, ln: Line, base: str | None) -> float:
+    for m in getattr(res, "material", None) or []:
+        if m.get("key") == f"{t.key}.{ln.key}" and (base is None or m.get("base") == base):
+            return abs(m.get("variance") or 0.0)
+    return 0.0
+
+
 def key_points(main: BlockOut | None, res, drivers, addr: Callable[[str], str], *, stock: Iterable[str] = (),
-               free: Iterable[str] = ()) -> list[tuple[str, str | None]]:
-    """(formula or text, cause or None) per point: the engine's live points (none without a main table), then the
-    free points ('•  ' + text, so a point starting with '=' stays text), at most 5 in total."""
+               free: Iterable[str] = (), warnings: list[str] | None = None) -> list[tuple[str, str | None]]:
+    """(formula or text, cause or None) per point: the engine's live points from up to 2 main tables, then the
+    agent's free points ('•  ' + text, so a point starting with '=' stays text), at most 7 in total. Agent free points
+    are prioritized and never dropped unless they alone exceed 7; truncated engine points emit a warning."""
     stock = set(stock)
+    free_list = list(free)
+    free_pts = [(BULLET + t, None) for t in free_list[:MAX_POINTS]]
+    if len(free_list) > MAX_POINTS and warnings is not None:
+        warnings.append(f"Key points: {len(free_list)} agent points supplied, kept first {MAX_POINTS}")
+
     out: list[tuple[str, str | None]] = []
     cells = getattr(res, "cells", None) or {}
+    sources = _tables_for_points(main, res)
     if main is not None and main.type == "lines":
         out += [(f, None) for f in _lines_points(main, addr, cells)]
     elif main is not None and main.type == "trend":
         out += _trend_points(main, res, drivers, addr, cells)
-    elif main is not None:
-        chosen = _concept_chosen(main, res, cells) if main.type == "concept" else _chosen(main, res)
-        unit = _points_unit(main, chosen, cells)
-        for ln, material, base in chosen:
-            f = _formula(main, ln, addr, stock, base, cells, unit)
-            if f is not None:
-                out.append((f, _cause(ln, drivers, material)))
+    elif sources:
+        if len(sources) == 1:
+            t = sources[0]
+            chosen = _concept_chosen(t, res, cells) if t.type == "concept" else _chosen(t, res)
+            unit = _points_unit(t, chosen, cells)
+            for ln, material, base in chosen:
+                f = _formula(t, ln, addr, stock, base, cells, unit)
+                if f is not None:
+                    out.append((f, _cause(ln, drivers, material)))
+        else:
+            picked: list[tuple[float, BlockOut, Line, bool, str | None]] = []
+            units_by_table: dict[str, str] = {}
+            for t in sources:
+                c_list = (_concept_chosen(t, res, cells) if t.type == "concept"
+                          else _chosen(t, res, allow_fallback=False))
+                if c_list:
+                    units_by_table[t.key] = _points_unit(t, c_list, cells)
+                for ln, material, base in c_list:
+                    picked.append((_abs_var(res, t, ln, base), t, ln, material, base))
+            if picked:
+                picked.sort(key=lambda x: -x[0])
+                picked = picked[:MAX_POINTS]
+            else:
+                t = sources[0]
+                fallback = _concept_chosen(t, res, cells) if t.type == "concept" else _chosen(t, res)
+                if fallback:
+                    units_by_table[t.key] = _points_unit(t, fallback, cells)
+                    picked = [(0.0, t, ln, material, base) for ln, material, base in fallback]
+            for _, t, ln, material, base in picked:
+                f = _formula(t, ln, addr, stock, base, cells, units_by_table[t.key])
+                if f is not None:
+                    out.append((f, _cause(ln, drivers, material)))
     out = _once(out)
-    out += [(BULLET + t, None) for t in free]
-    return out[:MAX_POINTS]
+    avail = MAX_POINTS - len(free_pts)
+    if len(out) > avail:
+        if warnings is not None:
+            warnings.append(f"Key points: truncated {len(out)} engine point(s) to {avail} to keep all "
+                            f"{len(free_pts)} agent point(s) (limit {MAX_POINTS})")
+        out = out[:avail]
+    return out + free_pts
 
 
 def _points_unit(o: BlockOut, chosen, cells) -> str:
@@ -306,11 +361,13 @@ def _lines_points(o: BlockOut, addr: Callable[[str], str], cells) -> list[str]:
     def unit(key: str) -> str:
         return " " + one
     out = []
-    groups = [ln for ln in o.lines if ln.key not in LINES_CONTROLS and ln.kind == "line"][:TOP_LINES]
+    groups = [ln for ln in o.lines if ln.key not in LINES_CONTROLS and ln.kind == "line"
+              and ln.level == 0][:TOP_LINES]
+    share_idx = o.cols.index("share") if "share" in o.cols else None
     for ln in groups:
         f = f'="{BULLET}{_esc(sheet_label(ln))}: "&{amount(ln.key)}&"{unit(ln.key)}'
-        if _cell(ln, 1):
-            p, h = addr(ck(o.key, ln.key, 1)), addr(HUNDRED)
+        if share_idx is not None and _cell(ln, share_idx):
+            p, h = addr(ck(o.key, ln.key, share_idx)), addr(HUNDRED)
             f += f' ("&IF({p}="","n/a",{_minus(f"FIXED({p}*{h},1)")}&" %")&")"'
         else:
             f += '"'
@@ -342,14 +399,14 @@ def point_rows(points: list[tuple[str, str | None]]) -> list[str]:
 
 
 def free_points(spec) -> tuple[list[str], list[str]]:
-    """The agent's free key points (every commentary block, in order) and a warning per block with more than 5:
-    its first 5 are kept (only a new question refuses them: validate.guard_key_points)."""
+    """The agent's free key points (every commentary block, in order) and a warning per block with more than 7:
+    its first 7 are kept (only a new question refuses them: validate.guard_key_points)."""
     pts: list[str] = []
     warnings: list[str] = []
     for b in spec.blocks:
         if isinstance(b, CommentaryBlock):
             if len(b.key_points) > MAX_POINTS:
                 warnings.append(f"commentary '{b.title}': {len(b.key_points)} key points, the first {MAX_POINTS} "
-                                "were kept; fix: keep at most 5")
+                                f"were kept; fix: keep at most {MAX_POINTS}")
             pts += b.key_points[:MAX_POINTS]
     return pts, warnings

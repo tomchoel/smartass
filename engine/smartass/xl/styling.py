@@ -414,16 +414,28 @@ def apply_report(ws, roles: dict) -> list[str]:
     title_merges: list[tuple[int, int]] = []          # a wrapped title: merged over the width in its own style
     checks: list[tuple[int, int]] = []
     assigned: dict[tuple[int, int], str] = {}             # (row, col) -> TN style set below (for the fast lint)
+    helpers = sorted(_ci(c) for c in roles.get("helper_cols", []))
+    helper_set = set(helpers)
+    bounded = bool(roles.get("print_last_col") or roles.get("print_footer")
+                   or any("end_col" in x for x in roles["rows"]))
 
     for r in range(1, last_row + 1):
         spec = rows.get(r, {"kind": "blank"})
         kind = spec["kind"]
         cols: dict[int, str] = {}
         num = {_ci(k): v for k, v in (spec.get("num") or {}).items()}
+        span_end = _ci(spec["end_col"]) if spec.get("end_col") else (text_last if bounded else last)
         if kind in ("title", "subtitle", "section", "note", "blank"):
             name = {"title": "TN Tittel", "subtitle": "TN Undertittel", "section": "TN Seksjon",
                     "note": "TN Note", "blank": "TN Tom"}[kind]
-            cols = {c: name for c in range(1, last + 1)}
+            if kind == "blank":
+                cols = {c: "TN Tom" for c in range(1, last + 1)}
+            elif bounded:
+                end = span_end if kind == "section" else text_last
+                cols = {c: name if first_label <= c <= end and c not in helper_set else "TN Tom"
+                        for c in range(1, last + 1)}
+            else:
+                cols = {c: name for c in range(1, last + 1)}
             heights[r] = {"title": 28, "subtitle": 16, "section": 22}.get(kind, 15)
             txt = val(r, first_label) if kind == "title" else None
             if txt:                     # a long message title wraps inside the table width, never off the page
@@ -433,10 +445,14 @@ def apply_report(ws, roles: dict) -> list[str]:
                     heights[r] = n * 21 + 4
                     title_merges.append((r, first_label))
         elif kind == "subhead":         # a sub-heading inside a table (concept sections): label only, no numbers
-            cols = {c: "TN Underseksjon" if c >= first_label else "TN Tom" for c in range(1, last + 1)}
+            end = span_end if bounded else last
+            cols = {c: "TN Underseksjon" if first_label <= c <= end and c not in helper_set else "TN Tom"
+                    for c in range(1, last + 1)}
             heights[r] = 15
         elif kind == "text":
-            cols = {c: "TN Tekst" if c >= first_label else "TN Tom" for c in range(1, last + 1)}
+            end = text_last if bounded else last
+            cols = {c: "TN Tekst" if first_label <= c <= end and c not in helper_set else "TN Tom"
+                    for c in range(1, last + 1)}
             width = sum(widths[c] for c in range(first_label, text_last + 1))
             txt = val(r, first_label)
             n = (tn.wrap_lines(str(txt), width) or 4) if txt else 1
@@ -445,8 +461,13 @@ def apply_report(ws, roles: dict) -> list[str]:
                 merges.append((r, first_label))
         elif kind == "header":
             nc = {_ci(c) for c in spec.get("num_cols", [])} if "num_cols" in spec else \
-                set(range(labels[-1] + 1, last + 1))
-            cols = {c: "TN Kolonne tall" if c in nc else "TN Kolonne" for c in range(1, last + 1)}
+                set(range(labels[-1] + 1, (span_end if bounded else last) + 1))
+            if bounded:
+                cols = {c: ("TN Kolonne tall" if c in nc else "TN Kolonne")
+                           if first_label <= c <= span_end and c not in helper_set else "TN Tom"
+                        for c in range(1, last + 1)}
+            else:
+                cols = {c: "TN Kolonne tall" if c in nc else "TN Kolonne" for c in range(1, last + 1)}
             lines = 1
             for c in range(1, last + 1):
                 t = val(r, c)
@@ -469,6 +490,8 @@ def apply_report(ws, roles: dict) -> list[str]:
                         formats.setdefault(k, []).append(f"{_cl(c)}{r}")
                 elif c == status:
                     cols[c] = "TN Tekst tallkolonne" if not emph else tn.style_name("etikett", emph)
+                elif bounded and (c > span_end or c in helper_set):
+                    cols[c] = "TN Tom"
                 elif c in labels:
                     cols[c] = tn.style_name("etikett", emph)
                 elif isinstance(v, (int, float)) and not isinstance(v, bool):
@@ -501,7 +524,6 @@ def apply_report(ws, roles: dict) -> list[str]:
         if code_cells:
             for chunk in tn._chunks(_blocks(code_cells), sep):
                 _retry(lambda: _code_look(ws.Range(chunk)))
-        helpers = sorted(_ci(c) for c in roles.get("helper_cols", []))
         if helpers:                                       # chart helper columns: grey, they are not the answer
             hrng = f"{_cl(helpers[0])}1:{_cl(helpers[-1])}{last_row}"
             _retry(lambda: setattr(ws.Range(hrng).Font, "Color", _rgb(tn.GREY)))

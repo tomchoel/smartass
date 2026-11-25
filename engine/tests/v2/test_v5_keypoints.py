@@ -214,12 +214,17 @@ def test_only_a_bridge_gives_only_free_points():
     assert p.cells[(r + 1, TEXT_COL)] == "•  Agent point" and (r + 2, TEXT_COL) not in p.cells
 
 
-def test_free_key_points_follow_and_cap_the_total_at_five():
-    free = ["one", "two", "three", "=four"]
-    pts = key_points(_main(), _res([_mat("m0", 5.0), _mat("m1", 9.0)]), [], addr, free=free)
-    assert len(pts) == 5
-    assert pts[2:] == [("•  one", None), ("•  two", None), ("•  three", None)]
-    pts = key_points(_main(), _res([]), [], addr, free=free)
+def test_free_key_points_follow_and_cap_the_total_at_seven():
+    free = ["one", "two", "three", "=four", "five"]
+    warn: list[str] = []
+    pts = key_points(_main(), _res([_mat("m0", 5.0), _mat("m1", 9.0), _mat("m2", 3.0)]), [], addr,
+                     free=free, warnings=warn)
+    assert len(pts) == 7
+    assert pts[:2] == [key_points(_main(), _res([_mat("m0", 5.0), _mat("m1", 9.0)]), [], addr)[0],
+                       key_points(_main(), _res([_mat("m0", 5.0), _mat("m1", 9.0)]), [], addr)[1]]
+    assert pts[2:] == [("•  one", None), ("•  two", None), ("•  three", None), ("•  =four", None), ("•  five", None)]
+    assert len(warn) == 1 and "truncated" in warn[0]
+    pts = key_points(_main(), _res([]), [], addr, free=free[:4])
     assert pts[1:] == [("•  one", None), ("•  two", None), ("•  three", None), ("•  =four", None)]
 
 
@@ -229,19 +234,20 @@ def test_count_does_not_depend_on_addr():
         len(key_points(_main(), res, [], addr, free=["x"]))
 
 
-def test_more_than_five_key_points_refused_only_on_a_new_question():
+def test_more_than_seven_key_points_refused_only_on_a_new_question():
     from smartass.model.validate import GuardError, guard_key_points
     from smartass.render.keypoints import free_points
-    d = spec_dict(blocks=[GROUPED, {"type": "commentary", "key_points": ["a", "b", "c", "d", "e", "f"]}])
+    eight = ["a", "b", "c", "d", "e", "f", "g", "h"]
+    d = spec_dict(blocks=[GROUPED, {"type": "commentary", "key_points": eight}])
     s = AnalysisSpec.model_validate(d)                 # a stored spec still loads
     with pytest.raises(GuardError):
         guard_key_points(s)
     pts, warnings = free_points(s)
-    assert pts == ["a", "b", "c", "d", "e"] and len(warnings) == 1 and "6" in warnings[0]
-    d["blocks"][1]["key_points"] = ["a", "b", "c", "d", "e"]
+    assert pts == eight[:7] and len(warnings) == 1 and "8" in warnings[0]
+    d["blocks"][1]["key_points"] = eight[:7]
     s = AnalysisSpec.model_validate(d)
     guard_key_points(s)
-    assert free_points(s) == (["a", "b", "c", "d", "e"], [])
+    assert free_points(s) == (eight[:7], [])
 
 
 def _balanced(f: str) -> bool:
@@ -276,3 +282,51 @@ def test_layout_end_to_end_formulas_are_valid_and_pass_formelsjekk():
         assert _balanced(formula), formula
         assert all(len(lit) <= 255 for lit in re.findall(r'"((?:[^"]|"")*)"', formula))
         assert [x for x in formelsjekk.check_formula(formula) if x.severity == "block"] == []
+
+
+def test_key_points_pools_from_up_to_two_tables_and_respects_agent_priority():
+    t1 = _main()
+    t2 = BlockOut("b1", "table", "Cost breakdown", HEADERS, cols=list(COLS),
+                  lines=[_line("m0", "Consultants"), _line("m1", "IT")])
+    t3 = BlockOut("b2", "table", "Ignored third table", HEADERS, cols=list(COLS),
+                  lines=[_line("m0", "Other")])
+    mats = [
+        {"block": "P&L", "line": "m0", "key": "b0.m0", "variance": 10.0, "variance_pct": None, "base": "ly"},
+        {"block": "Cost breakdown", "line": "m1", "key": "b1.m1", "variance": 8.0, "variance_pct": None, "base": "ly"},
+        {"block": "P&L", "line": "m1", "key": "b0.m1", "variance": 6.0, "variance_pct": None, "base": "ly"},
+        {"block": "Cost breakdown", "line": "m0", "key": "b1.m0", "variance": 4.0, "variance_pct": None, "base": "ly"},
+        {"block": "Ignored third table", "line": "m0", "key": "b2.m0", "variance": 99.0, "variance_pct": None, "base": "ly"},
+    ]
+    a2 = lambda k: "Z10" if k.startswith("b1.") else addr(k)        # noqa: E731
+    warn: list[str] = []
+    res = SimpleNamespace(material=mats, outs=[t1, t2, t3])
+    pts = key_points(t1, res, [], a2, free=["f1", "f2", "f3", "f4"], warnings=warn)
+    assert len(pts) == 7
+    assert pts[3:] == [("•  f1", None), ("•  f2", None), ("•  f3", None), ("•  f4", None)]
+    assert len(warn) == 1 and "truncated" in warn[0]
+    engine_text = " ".join(f for f, _ in pts[:3])
+    assert "Consultants" not in engine_text and "Other" not in engine_text
+    assert "Revenue" in engine_text and "IT" in engine_text and 'Opex ""other""' in engine_text
+
+
+def test_mixed_sign_lines_key_points_ignore_children_and_dont_treat_debit_as_pct():
+    lines_blk = BlockOut(
+        "b0", "lines", "Ledger lines by supplier",
+        headers=["Amount", "Debit", "Credit", "Lines"],
+        cols=["amount", "debit", "credit", "lines"],
+        lines=[
+            Line("g0", "Accenture AS", [Const(-90.0), Const(-120.0), Const(30.0), Const(2.0)], code="43200"),
+            Line("g1", "Bouvet", [Const(-40.0), Const(-40.0), Const(0.0), Const(1.0)], code="43100"),
+            Line("blank", "Lines without a supplier", [Const(-50.0), Const(-50.0), Const(0.0), Const(3.0)]),
+            Line("blank_0", "HG 12", [Const(-40.0), Const(-40.0), Const(0.0), Const(2.0)], level=1, code="43100"),
+            Line("total", "Ledger lines total", [Const(-180.0), Const(-210.0), Const(30.0), Const(6.0)], kind="sum"),
+        ],
+    )
+    a = lambda k: {"b0.g0.0": "D10", "b0.g1.0": "D11", "b0.blank.0": "D12", "b0.blank_0.0": "D13",
+                   "b0.total.0": "D14"}.get(k, "D15")   # noqa: E731
+    pts = key_points(lines_blk, SimpleNamespace(material=[], outs=[lines_blk]), [], a)
+    assert len(pts) == 3
+    joined = " ".join(f for f, _ in pts)
+    assert "HG 12" not in joined and "Lines without a supplier" not in joined
+    assert "Accenture AS" in joined and "Bouvet" in joined and "Ledger lines total" in joined
+    assert " %" not in joined and "*$D$" not in joined

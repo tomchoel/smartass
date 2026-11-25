@@ -22,7 +22,7 @@ from ..xl.userjobs import UserJobs
 logsetup.configure(config.SERVER_LOG)
 log = logging.getLogger("smartview")
 
-RUN_LOGGED = ("fin_analyze", "fin_drill", "fin_refresh")   # tools with a line in config.RUN_LOG (core/runlog.py)
+RUN_LOGGED = ("fin_analyze", "fin_drill", "fin_refresh", "fin_slice", "fin_lines")   # tools with a line in config.RUN_LOG
 READ = ToolAnnotations(read_only_hint=True, open_world_hint=True)          # reads EPM, writes nothing
 LOCAL = ToolAnnotations(read_only_hint=True, open_world_hint=False)        # local atlas / status only
 # Writes to the user's workbook or to files (never to EPM): not read-only, so clients do not auto-approve them.

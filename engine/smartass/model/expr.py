@@ -7,7 +7,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, Literal
 
 from .frame import Frame
 
@@ -291,36 +291,108 @@ def share(part: Expr, total: Expr) -> Expr:
     return Ratio(part, total)
 
 
+_LP_DATE = re.compile(r"^\s*(\d{1,4}[-./]\d{1,2}([-./]\d{1,4})?|[A-Za-z]{3,9}[-./ ]\d{1,4}"
+                      r"|\d{1,2}[-./ ][A-Za-z]{3,9}([-./ ]\d{1,4})?)\s*$")
+_LP_COERCED = re.compile(r"^\s*(\d{1,2}:\d{2}.*|.*%\s*|true|false|-?\d+,\d+)\s*$", re.IGNORECASE)
+_LP_WILDCARDS = set("*?~")
+
+
+def _safe_sumifs(v: str) -> bool:
+    if len(v) > 255 or _LP_DATE.match(v) or _LP_COERCED.match(v) or (_LP_WILDCARDS & set(v)) \
+            or v[:1] in ("<", ">", "="):
+        return False
+    return not (v.isdigit() and (len(v) > 15 or (len(v) > 1 and v[0] == "0")))
+
+
+def _q_tag(table: str) -> str:
+    m = re.search(r"Q\d+", table)
+    return m.group(0) if m else table.split("_", 1)[1]
+
+
 @dataclass(frozen=True)
 class LinePick(Expr):
-    """Sum of AMOUNT over a line set's rows whose `column` (case-insensitive, trimmed) is one of `values`
-    (column None: every row). Excel: SUMIFS on table Lines_Q<n>_<alias> (n from the Data table name)."""
+    """Aggregate of AMOUNT (or row count) over a line set's rows matching `column` in `values` and any `extra`
+    (column, values) filters (column None: every row). Excel: SUMIFS / COUNTIFS / ROWS on table Lines_Q<n>_<alias>,
+    or FILTER / SUM(--(...)) when a criterion would be coerced or rejected by SUMIFS."""
     alias: str
     column: str | None
     values: tuple[str, ...] | None
+    agg: Literal["sum", "count", "debit", "credit"] = "sum"
+    extra: tuple[tuple[str, tuple[str, ...]], ...] = ()
+
+    def _filters(self) -> list[tuple[str, tuple[str, ...]]]:
+        out: list[tuple[str, tuple[str, ...]]] = []
+        if self.column is not None:
+            out.append((self.column, tuple(dict.fromkeys(self.values or ()))))
+        for c, vs in self.extra:
+            out.append((c, tuple(dict.fromkeys(vs))))
+        return out
 
     def evaluate(self, frame, cells):
         from .lines import AMOUNT, norm
         ls = frame.lines[self.alias]
-        want = None if self.column is None else {norm(v) for v in self.values or ()}
-        hit = [float(r.get(AMOUNT) or 0.0) for r in ls.rows
-               if want is None or norm(r.get(self.column)) in want]
-        return sum(hit) if hit else None
+        preds = [(c, {norm(v) for v in vs}) for c, vs in self._filters()]
+        matched = [r for r in ls.rows if all(norm(r.get(c)) in want for c, want in preds)]
+        if self.agg == "count":
+            return float(len(matched))
+        hit = [float(r.get(AMOUNT) or 0.0) for r in matched]
+        if not hit:
+            return None
+        if self.agg == "debit":
+            return sum(x for x in hit if x < 0)
+        if self.agg == "credit":
+            return sum(x for x in hit if x > 0)
+        return sum(hit)
 
     def to_excel(self, table, addr, const=None):
-        t = f"Lines_{table.split('_', 1)[1]}_{self.alias}"
-        if self.column is None:
+        t = f"Lines_{_q_tag(table)}_{self.alias}"
+        filters = self._filters()
+        sign = {"debit": '"<0"', "credit": '">0"'}.get(self.agg)
+        if not filters:
+            if self.agg == "count":
+                return f"ROWS({t}[AMOUNT])"
+            if sign:
+                return f"SUMIFS({t}[AMOUNT],{t}[AMOUNT],{sign})"
             return f"SUM({t}[AMOUNT])"
-        vals = tuple(dict.fromkeys(self.values or ()))
-        if len(vals) == 1:
-            return f"SUMIFS({t}[AMOUNT],{t}[{self.column}],{_crit(vals[0])})"
-        arr = "{" + ",".join(_crit(v) for v in vals) + "}"
-        return f"SUM(SUMIFS({t}[AMOUNT],{t}[{self.column}],{arr}))"
+        multis = sum(1 for _, vs in filters if len(vs) > 1)
+        if multis <= 2 and all(_safe_sumifs(v) for _, vs in filters for v in vs):
+            parts: list[str] = []
+            multi = 0
+            for c, vs in filters:
+                if len(vs) == 1:
+                    crit = _q(vs[0])
+                else:
+                    multi += 1
+                    crit = "{" + ("," if multi == 1 else ";").join(_q(v) for v in vs) + "}"
+                parts += [f"{t}[{c}]", crit]
+            if self.agg == "count":
+                f = "COUNTIFS(" + ",".join(parts) + ")"
+                return f"SUM({f})" if multi else f
+            head = [f"{t}[AMOUNT]", f"{t}[AMOUNT]", sign] if sign else [f"{t}[AMOUNT]"]
+            f = "SUMIFS(" + ",".join(head + parts) + ")"
+            return f"SUM({f})" if multi else f
+        conds = [_in_cond(t, c, vs) for c, vs in filters]
+        if sign:
+            conds.append(f"{t}[AMOUNT]{sign.strip(chr(34))}")
+        test = conds[0] if len(conds) == 1 else "*".join(f"({c})" for c in conds)
+        if self.agg == "count":
+            return f"SUM(--({test}))" if len(conds) == 1 else f"SUM({test})"
+        return f"SUM(FILTER({t}[AMOUNT],{test},0))"
+
+
+def _in_cond(t: str, c: str, vs: tuple[str, ...]) -> str:
+    if len(vs) == 1:
+        return f"{t}[{c}]={_q(vs[0])}"
+    if "" not in vs:
+        return f"ISNUMBER(MATCH({t}[{c}],{{{','.join(_q(x) for x in vs)}}},0))"
+    rest = [x for x in vs if x != ""]
+    other = f"({t}[{c}]={_q(rest[0])})" if len(rest) == 1 else f"ISNUMBER(MATCH({t}[{c}],{{{','.join(_q(x) for x in rest)}}},0))"
+    return f'(({t}[{c}]="")+{other})'
 
 
 @dataclass(frozen=True)
 class CubeRef(Expr):
-    """The cube value of the drilled cell, written next to the lines (sheet 'Q<n> Lines <alias>', D2)."""
+    """The cube value of the drilled cell, written next to the lines (sheet 'Q<n> Lines <alias>', D3)."""
     alias: str
 
     def evaluate(self, frame, cells):
@@ -328,8 +400,7 @@ class CubeRef(Expr):
 
     def to_excel(self, table, addr, const=None):
         from .lines import CUBE_CELL
-        q = table.split("_", 1)[1]                      # 'Q3'
-        return f"'{q} Lines {self.alias}'!{CUBE_CELL}"
+        return f"'{_q_tag(table)} Lines {self.alias}'!{CUBE_CELL}"
 
 
 @dataclass(frozen=True)

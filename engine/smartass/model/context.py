@@ -29,7 +29,8 @@ class Ctx:
         raise KeyError(f"unknown query {qid!r}")
 
     def pick(self, q: Query, metric: str, series: str = "value", entity: str | tuple[str, ...] | None = None,
-             base_months: list[Month] | None = None, product: str | tuple[str, ...] | None = None) -> Expr:
+             base_months: list[Month] | None = None, product: str | tuple[str, ...] | None = None,
+             extra_dims: dict[str, tuple[str, ...]] | None = None) -> Expr:
         """The SUMIFS behind one cell. Product filters on the query's products (all of them unless one or some are
         given); a query without products has no Product criterion."""
         scen, ver = scenario(q.cube, series, self.resolver)
@@ -46,6 +47,10 @@ class Ctx:
         if ver:
             f["Version"] = (ver,)
         f["Balance"] = (self.resolver.balance(metric),)
+        for dim, val in q.dimensions.items():
+            f[dim] = (val,) if isinstance(val, str) else tuple(val)
+        for dim, vals in (extra_dims or {}).items():
+            f[dim] = vals
         return pick(f)
 
     def value(self, e: Expr) -> float | None:
