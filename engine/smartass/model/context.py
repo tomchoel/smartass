@@ -28,11 +28,18 @@ class Ctx:
                 return q
         raise KeyError(f"unknown query {qid!r}")
 
+    def dedup_products(self, q: Query) -> tuple[str, ...]:
+        """Deduplicated product set (parent + child overlap counted once) when summing q.products."""
+        if len(q.products) <= 1:
+            return tuple(q.products)
+        from .products import analyze_products
+        return analyze_products(q.products, self.resolver, q.cube).dedup_products
+
     def pick(self, q: Query, metric: str, series: str = "value", entity: str | tuple[str, ...] | None = None,
              base_months: list[Month] | None = None, product: str | tuple[str, ...] | None = None,
              extra_dims: dict[str, tuple[str, ...]] | None = None) -> Expr:
-        """The SUMIFS behind one cell. Product filters on the query's products (all of them unless one or some are
-        given); a query without products has no Product criterion."""
+        """The SUMIFS behind one cell. Product filters on the deduplicated query products unless specific
+        product(s) are given; a query without products has no Product criterion."""
         scen, ver = scenario(q.cube, series, self.resolver)
         ents = (q.entity,) if entity is None else ((entity,) if isinstance(entity, str) else tuple(entity))
         ms = months(q, series, self.closed_for(q.cube), base_months)
@@ -40,7 +47,7 @@ class Ctx:
             ms = ms[-1:]
         f = {"Cube": (q.cube,), "Query": (q.id,), "Account": self.resolver.members(metric, q.cube),
              "Entity": ents}
-        prods = q.products if product is None else ((product,) if isinstance(product, str) else tuple(product))
+        prods = self.dedup_products(q) if product is None else ((product,) if isinstance(product, str) else tuple(product))
         if prods:
             f["Product"] = tuple(prods)
         f |= {"Period": tuple(label(m) for m in ms), "Scenario": (scen,)}

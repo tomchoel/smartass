@@ -374,35 +374,52 @@ PRODUCTS_TOTAL = "Total products"
 
 def product_lines(ctx: Ctx, q: Query, metric: str, cols: list[str], key: str, *, top: int | None = None,
                   other: bool = True, sort: str = "none", bm: list | None = None) -> list[Line]:
-    """One line per product of the query (top N, sorted like entity_lines), Other, and the total over the query's
-    products (no parent member: the total is the sum of the products asked for, so no check line)."""
+    """One line per product of the query (top N, sorted), Other, and deduplicated Total products.
+    When listed products overlap in hierarchy (parent + child), every line is kept and covered children are
+    visually indented/annotated, while Total products, Other and Share % count each underlying amount once."""
+    from ..products import analyze_products
     r = ctx.resolver
-    prods = list(q.products)
+    plan = analyze_products(q.products, r, q.cube)
+    prods = list(plan.all_products)
 
     def val(p: str) -> float:
         return ctx.value(ctx.pick(q, metric, "value", product=p)) or 0.0
 
-    if sort != "none" or top:
-        prods = [p for p in prods if not negligible(ctx, q, metric, cols, product=p)]
-        order = {"desc": lambda p: -val(p), "asc": val, "abs": lambda p: -abs(val(p)),
-                 "none": lambda p: -abs(val(p))}[sort]
-        prods.sort(key=order)
-    shown, rest = (prods[:top], prods[top:]) if top else (prods, [])
-    lines = [Line(f"p{i}", r.label(p, q.cube),
-                  row_cells(ctx, q, metric, cols, key, f"p{i}", total_key="total", product=p, bm=bm),
-                  metric=metric, entity=q.entity, code=code_of(p))
-             for i, p in enumerate(shown)]
+    shown, rest = _sort_and_slice(
+        prods, val, lambda p: negligible(ctx, q, metric, cols, product=p), sort, top,
+    )
+    shown_set = set(shown)
+    lines = []
+    for i, p in enumerate(shown):
+        lab = r.label(p, q.cube)
+        parent = plan.parent_of.get(p)
+        lvl = 1 if parent else 0
+        pcode = code_of(parent) if parent else ""
+        disp = f"{lab} (in {pcode or parent})" if parent else ""
+        lines.append(Line(f"p{i}", lab,
+                          row_cells(ctx, q, metric, cols, key, f"p{i}", total_key="total", product=p, bm=bm),
+                          level=lvl, metric=metric, entity=q.entity, code=code_of(p), display=disp))
+
     if rest and other:
-        cells: list[Expr | None] = []
-        for j, c in enumerate(cols):
-            if c in ("value",) + BASES:
-                cells.append(Sub(Ref(ck(key, "total", j)),
-                                 Sum(tuple(Ref(ck(key, f"p{i}", j)) for i in range(len(shown))))))
-            elif c == GAP:
-                cells.append(None)
-            else:
-                cells.append(derived(c, cols, key, "other", total_key="total", j=j))
-        lines.append(Line("other", "Other", cells, metric=metric))
+        if plan.overlaps:
+            uncovered = [p for p in rest if p not in plan.parent_of or plan.parent_of[p] not in shown_set]
+            other_prods = analyze_products(uncovered, r, q.cube).dedup_products if uncovered else ()
+            if other_prods:
+                lines.append(Line("other", "Other",
+                                  row_cells(ctx, q, metric, cols, key, "other", total_key="total",
+                                            product=other_prods, bm=bm),
+                                  metric=metric))
+        else:
+            cells: list[Expr | None] = []
+            for j, c in enumerate(cols):
+                if c in ("value",) + BASES:
+                    cells.append(Sub(Ref(ck(key, "total", j)),
+                                     Sum(tuple(Ref(ck(key, f"p{i}", j)) for i in range(len(shown))))))
+                elif c == GAP:
+                    cells.append(None)
+                else:
+                    cells.append(derived(c, cols, key, "other", total_key="total", j=j))
+            lines.append(Line("other", "Other", cells, metric=metric))
     lines.append(Line("total", PRODUCTS_TOTAL, row_cells(ctx, q, metric, cols, key, "total", total_key="total",
                                                          bm=bm),
                       kind="grand", metric=metric, entity=q.entity))

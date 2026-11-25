@@ -71,11 +71,18 @@ def prepare(raw: dict, resolver, provider, closed: dict | None = None, lines: di
     if closed is None:
         closed = provider.closed_months()
     canonical = getattr(resolver, "canonical", None)
-    if canonical is not None:                   # atlas spelling: requests and SUMIFS then use one name
+    resolve_prod = getattr(resolver, "resolve_product", None)
+    if canonical is not None or resolve_prod is not None:
         for q in spec.queries:
-            if resolver.exists(q.entity, q.cube):
+            if canonical is not None and resolver.exists(q.entity, q.cube):
                 q.entity = canonical(q.entity, q.cube)
-            q.products = [canonical(x, q.cube) if resolver.exists(x, q.cube) else x for x in q.products]
+            prods = []
+            for x in q.products:
+                resolved = resolve_prod(x, q.cube) if resolve_prod is not None else x
+                if canonical is not None and resolver.exists(resolved, q.cube):
+                    resolved = canonical(resolved, q.cube)
+                prods.append(resolved)
+            q.products = prods
     reqs = plan_requests(spec, resolver, closed)
     def fetch_one(req):
         try:

@@ -7,6 +7,7 @@ import re
 import sqlite3
 
 from ..model.resolver import UnknownMetric
+from . import atlas
 
 
 class AtlasTree:
@@ -27,6 +28,14 @@ class AtlasTree:
 
     def exists(self, member: str, cube: str) -> bool:
         return self._row(member, cube) is not None
+
+    def resolve_product(self, name: str, cube: str) -> str:
+        """Resolve full product name or unambiguous bare code (e.g. 'P43' -> 'pd.SY.P43')."""
+        return atlas.resolve_product(self.db, cube, name)
+
+    def parents(self, member: str, cube: str, dimension: str | None = None) -> tuple[str, ...]:
+        """Every parent placement of member (shared members return multiple parents)."""
+        return tuple(atlas.all_parents(self.db, cube, member, dimension=dimension))
 
     def children(self, member: str, cube: str) -> tuple[str, ...]:
         row = self._row(member, cube)

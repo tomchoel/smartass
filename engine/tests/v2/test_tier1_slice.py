@@ -126,3 +126,135 @@ def test_run_slice_enforces_closed_month_unless_preliminary(tmp_path):
     ok = run_slice(prov, _DummyResolver(db), {"FinMax": (2026, 9)},
                    cube="FinMax", rows={"All Accounts": ["ac.43200"]}, periods="Oct 26", preliminary=True)
     assert any("preliminary" in w for w in ok["warnings"])
+
+
+def test_run_slice_retains_comparison_only_rows_and_handles_missing_variance(tmp_path):
+    db_path, db = _rich_atlas_db(tmp_path)
+    with atlas.connect(db_path) as c:
+        atlas.store(c, "FinMax", "All Entities", [
+            {"name": "All Entities", "label": "All Entities", "parent": None, "depth": 0, "order": 0},
+            {"name": "un.SY.VB20", "label": "VB20 Core (un.SY)", "parent": "All Entities", "depth": 1, "order": 1},
+            {"name": "un.SY.A406", "label": "A406 Access (un.SY)", "parent": "All Entities", "depth": 1, "order": 2},
+        ], 0.1)
+
+    def value(rows, cols, pov):
+        ent = rows[0]
+        per = cols[0]
+        if ent == "un.SY.A406":
+            return -50.0 if per == "Apr 26" else -40.0
+        # VB20 has LY only (Apr 25), #Missing in Apr 26!
+        return -110.0 if per == "Apr 25" else None
+
+    sv = svhttp.SvHttp(EchoTransport(value), home="https://plan1.example", db_path=db_path)
+    prov = SvHttpProvider(sv)
+    res = run_slice(
+        prov, _DummyResolver(db), {"FinMax": (2026, 9)},
+        cube="FinMax",
+        rows={"All Entities": ["un.SY.VB20", "un.SY.A406"]},
+        pov={"All Accounts": "ac.43200"},
+        periods="Apr 26",
+        compare=["ly"],
+        suppress_missing=True,
+        limit=1,
+    )
+    # Must preserve VB20 (axis order: first) even though count>limit; row_count=2 before slicing to limit=1
+    assert res["row_count"] == 2 and res["truncated"] is True
+    r0 = res["rows"][0]
+    assert r0["All Entities"] == "un.SY.VB20"
+    assert r0["Apr 26"] is None and r0["Apr 26 [ly]"] == -110.0
+    assert r0["Apr 26 var vs ly"] == pytest.approx(110.0)
+    assert r0["Apr 26 var% vs ly"] == pytest.approx(1.0)
+
+    # When comparison (LY) is #Missing and AC has a value: variance is AC - 0, var_pct is None!
+    def value_ac_only(rows, cols, pov):
+        return 50.0 if cols[0] == "Apr 26" else None
+    sv2 = svhttp.SvHttp(EchoTransport(value_ac_only), home="https://plan1.example", db_path=db_path)
+    res2 = run_slice(SvHttpProvider(sv2), _DummyResolver(db), {"FinMax": (2026, 9)},
+                     cube="FinMax", rows={"All Entities": ["un.SY.VB20"]}, pov={"All Accounts": "ac.43200"},
+                     periods="Apr 26", compare=["ly"], suppress_missing=True)
+    r_ac = res2["rows"][0]
+    assert r_ac["Apr 26 var vs ly"] == pytest.approx(50.0)
+    assert r_ac["Apr 26 var% vs ly"] is None
+
+
+def test_expand_leaves_past_1000_nodes_and_tree_truncation_metadata(tmp_path):
+    p = tmp_path / "big_atlas.db"
+    db = atlas.connect(p)
+    # 1100 intermediate parent nodes BEFORE a single leaf node!
+    nodes = [{"name": "All Products", "label": "All Products", "parent": None, "depth": 0, "order": 0},
+             {"name": "pd.SY", "label": "SY (pd)", "parent": "All Products", "depth": 1, "order": 1}]
+    for i in range(1100):
+        nodes.append({"name": f"pd.SY.INT{i:04d}", "label": f"INT{i}", "parent": "pd.SY", "depth": 2, "order": i})
+    nodes.append({"name": "pd.SY.U9500", "label": "U9500 Leaf", "parent": "pd.SY.INT0000", "depth": 3, "order": 0})
+    atlas.store(db, "FinMax", "All Products", nodes, 0.1)
+    for dname in ("All Accounts", "All Entities", "All Time Periods", "All Scenarios", "All Currencies", "All Balance Types"):
+        atlas.store(db, "FinMax", dname, [{"name": dname, "label": dname, "parent": None, "depth": 0, "order": 0}], 0.1)
+    atlas.store(db, "FinMax", "All Accounts", [
+        {"name": "All Accounts", "label": "All Accounts", "parent": None, "depth": 0, "order": 0},
+        {"name": "ac.C30", "label": "C30", "parent": "All Accounts", "depth": 1, "order": 1},
+    ], 0.1)
+
+    r = _DummyResolver(db)
+    # Tree reports truncation + effective limits honestly
+    t = browse_tree(r, cube="FinMax", parent="pd.SY", depth=3, limit=50)
+    assert t["truncated"] is True and t["has_more"] is True and t["returned"] == 50
+    assert t["effective_depth"] == 3 and t["effective_limit"] == 50
+
+    # expand="leaves" filters to leaves BEFORE limiting, finding pd.SY.U9500 past 1100 intermediates!
+    sv = svhttp.SvHttp(EchoTransport(lambda rows, cols, pov: 14.0 if "pd.SY.U9500" in rows else None),
+                       home="https://plan1.example", db_path=p)
+    prov = SvHttpProvider(sv)
+    res = run_slice(prov, r, {"FinMax": (2026, 9)}, cube="FinMax", rows={"All Products": ["pd.SY"]},
+                    expand={"All Products": "leaves"}, pov={"All Accounts": "ac.C30"}, periods="Sep 26")
+    assert any(row["All Products"] == "pd.SY.U9500" for row in res["rows"])
+
+
+def test_slice_ytd_total_sums_flows_and_skips_summing_levels(tmp_path):
+    db_path, db = _rich_atlas_db(tmp_path)
+    atlas.store_cards(db, "FinMax", "All Accounts", [
+        ("ac.43200", "ac.C40S", "+", "flow", "Expense", 0),
+        ("ac.STA20Y", "All Accounts", "+", "balance_last", "Asset", 0),
+    ])
+    with atlas.connect(db_path) as c:
+        c.execute("INSERT OR IGNORE INTO member VALUES ('FinMax','All Accounts','ac.STA20Y','STA20Y FTE','All Accounts',1,99)")
+        c.commit()
+
+    def value(rows, cols, pov):
+        return -10.0 if rows[0] == "ac.43200" else 26.0
+
+    sv = svhttp.SvHttp(EchoTransport(value), home="https://plan1.example", db_path=db_path)
+    res = run_slice(SvHttpProvider(sv), _DummyResolver(db), {"FinMax": (2026, 9)},
+                    cube="FinMax", rows={"All Accounts": ["ac.43200", "ac.STA20Y"]},
+                    periods="Jan 26..Mar 26", total=True)
+    by_acc = {r["All Accounts"]: r for r in res["rows"]}
+    assert by_acc["ac.43200"]["Total"] == pytest.approx(-30.0)
+    assert by_acc["ac.STA20Y"]["Total"] is None
+    assert by_acc["ac.STA20Y"]["Period End"] == pytest.approx(26.0)
+
+
+def test_expand_reconciliation_exact_and_skipped_for_shared(tmp_path):
+    db_path, db = _rich_atlas_db(tmp_path)
+    # Clean single-placement parent ac.C40S -> ac.43200 (-120) + ac.41000 (-80) = -200
+    def value(rows, cols, pov):
+        return {"ac.C40S": -200.0, "ac.43200": -120.0, "ac.41000": -80.0}.get(rows[0])
+
+    sv = svhttp.SvHttp(EchoTransport(value), home="https://plan1.example", db_path=db_path)
+    res = run_slice(SvHttpProvider(sv), _DummyResolver(db), {"FinMax": (2026, 9)},
+                    cube="FinMax", rows={"All Accounts": ["ac.C40S"]}, expand={"All Accounts": "children"},
+                    pov={"All Entities": "un.SY.5BMT_T"}, periods="closed")
+    assert res["reconciliation"][0]["status"] == "exact" and res["reconciliation"][0]["gap"] == 0.0
+
+    # Shared member under All Products -> reconciliation explicitly skipped!
+    with atlas.connect(db_path) as c:
+        atlas.store(c, "FinMax", "All Products", [
+            {"name": "All Products", "label": "All Products", "parent": None, "depth": 0, "order": 0},
+            {"name": "pd.SY.P1", "label": "P1", "parent": "All Products", "depth": 1, "order": 1},
+            {"name": "pd.SY.S1", "label": "S1", "parent": "pd.SY.P1", "depth": 2, "order": 1},
+            {"name": "pd.SY.S1", "label": "S1", "parent": "All Products", "depth": 1, "order": 2},
+        ], 0.1)
+    sv2 = svhttp.SvHttp(EchoTransport(lambda *a: 10.0), home="https://plan1.example", db_path=db_path)
+    res2 = run_slice(SvHttpProvider(sv2), _DummyResolver(db), {"FinMax": (2026, 9)},
+                     cube="FinMax", rows={"All Products": ["pd.SY.P1"]}, expand={"All Products": "children"},
+                     pov={"All Accounts": "ac.C40S", "All Entities": "un.SY.5BMT_T"}, periods="closed")
+    assert res2["reconciliation"][0]["status"] == "skipped"
+    assert "shared" in res2["reconciliation"][0]["reason"].lower()

@@ -111,7 +111,7 @@ def build_drivers(b: DriversBlock, ctx: Ctx, key: str) -> BlockOut:
             out.lines.append(Line(okey, f"Other accounts ({len(skipped)})", cells, level=level + 1))
 
     def walk_products() -> None:
-        prods = list(q.products)
+        prods = list(ctx.dedup_products(q))
         scored = sorted(((variance_of(b.metric, product=p), p) for p in prods), key=lambda t: -abs(t[0]))
         gross = sum(abs(v) for v, _ in scored) or 1.0
         covered = 0.0

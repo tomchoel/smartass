@@ -5,22 +5,21 @@ description: Pull Telenor Norge financial data from Oracle EPM Cloud (FinMax/Fin
 
 # smartass: finance analyses in Excel
 
-Call the 9 `mcp__smartass__*` tools directly, never a side script. Read-only towards EPM. Answers go to the
+Call the 12 `mcp__smartass__*` tools directly, never a side script. Read-only towards EPM. Answers go to the
 session workbook (`target="session"`, Q1, Q2 …); `"active"` only for the user's open workbook, `"new"` for a
-separate file. Method lives in MCP prompts: `plan`, `critic` and the playbooks `monthly-pack`,
+separate file. Method lives in MCP prompts: `plan`, `critic` and playbooks `monthly-pack`,
 `variance-commentary`, `gl-extract`, `prodreg-input`.
 
-## 1. The loop: plan → build → explain → critic
+## 1. The loop: explore → plan → build → explain → critic
 
-1. **Plan.** Decide cube, entity, metrics, periods and comparisons. Unsure of a name: `fin_lookup(query, kind,
-   cube)` (metrics by name or alias, members, concepts; with caveats). Past answers:
-   `fin_lookup(query, kind="answer")`. Write `plan`: `depth`, `title`, `purpose`, `hypotheses`.
+1. **Plan & Explore.** Pick cube, entity, metrics, periods, comparisons. Explore zero-Excel with `fin_lookup(query,
+   kind, cube)` (metrics/alias, members, rules, `fin_lookup(query, kind="answer")`), `fin_tree` (dimensions), and `fin_slice`
+   (`total=True`). Keep `caveats`. Write `plan`: `depth`, `title`, `purpose`, `hypotheses`.
 2. **Build.** `fin_analyze(spec=...)` computes every value and writes `Q<n> Answer` (live formulas) +
    `Q<n> Data`. Unknown members, an open month or unreconciled totals stop it.
-3. **Explain.** Add the `commentary` by patch (drivers with `data` evidence or labelled `hypothesis`).
-4. **Critic** (`standard`, `deep`, every pack question). `fin_critic(q)` returns the brief and the rubric; score
-   the 6 criteria 1–5 and store them with `fin_critic(q, scores, notes)`: the server computes the score. On
-   `passed: false`, fix the gaps by patch and score again (at most 2 rounds); report the returned score.
+3. **Explain.** Add `commentary` by patch (drivers with `data` evidence or labelled `hypothesis`).
+4. **Critic** (`standard`, `deep`, pack). `fin_critic(q)` gives brief + rubric; score 6 criteria 1–5 with
+   `fin_critic(q, scores, notes)`. On `passed: false`, patch and re-score (max 2 rounds); report the returned score.
 
 ## 2. The spec
 
@@ -49,8 +48,7 @@ concepts: [reference/concepts.md](reference/concepts.md).
   (`target="Book1"`).
 - **Monthly pack:** `fin_refresh()` re-runs every answer to the latest closed month; then prompt `monthly-pack`.
   Refresh replaces Q<n> sheets; formulas pointing at them are re-pointed.
-- **Ledger lines:** a `lines` block or `fin_drill(cell, group_by, top)` (ties to the cube, report the gap;
-  60–90 s): [reference/drill.md](reference/drill.md).
+- **Ledger lines:** `lines` block or `fin_drill(cell)` + `fin_lines(drill_id, ...)` to filter/SQL cached drills (60–90 s): [reference/drill.md](reference/drill.md).
 
 ## 4. Reporting
 

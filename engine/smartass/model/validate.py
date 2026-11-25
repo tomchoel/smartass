@@ -61,10 +61,17 @@ def guard_spec(spec: AnalysisSpec, r: Resolver, closed: Closed) -> list[Finding]
     for q in spec.queries:
         if not r.exists(q.entity, q.cube):
             raise GuardError(f"unknown entity {q.entity!r} in {q.cube}", "find the member with fin_lookup")
+        resolve_prod = getattr(r, "resolve_product", None)
+        if resolve_prod is not None and q.products:
+            q.products = [resolve_prod(p, q.cube) for p in q.products]
         gone = [p for p in q.products if not r.exists(p, q.cube)]
         if gone:
             raise GuardError(f"unknown product(s) {', '.join(map(repr, gone))} in {q.cube}",
                              "find the product members with fin_lookup (FinMax/FinLite 'pd.SY.<code>')")
+        if len(q.products) > 1:
+            from .products import analyze_products
+            for w in analyze_products(q.products, r, q.cube).warnings:
+                soft.append(Finding("warning", w, q.id))
         for m in q.metrics:
             try:
                 r.members(m, q.cube)

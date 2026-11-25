@@ -42,3 +42,10 @@ def test_accumulated_balance_with_sum_aggregation_is_refused():
     with pytest.raises(ValueError, match="Accumulated.*sum"):
         MetricDef("Bad", {"FinMax": ("ac.X",)}, balance="Accumulated", aggregation="sum")
     MetricDef("Ok", {"FinMax": ("ac.X",)}, balance="Accumulated", aggregation="last")
+
+
+def test_raw_level_member_inherits_metric_balance_and_aggregation():
+    r = resolver()
+    # Querying raw 'ac.STA20Y' instead of metric 'FTE' must still use Accumulated / last!
+    assert r.balance("ac.STA20Y") == "Accumulated"
+    assert r.aggregation("ac.STA20Y") == "last"

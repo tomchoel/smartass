@@ -30,6 +30,7 @@ def no_atlas(request, monkeypatch, tmp_path):
     a = tmp_path / "atlas.db"
     if request.param == "empty file":
         atlas.connect(a).close()
+    monkeypatch.setattr(config, "HOME", tmp_path)
     monkeypatch.setattr(config, "ATLAS_DB", a)
     monkeypatch.setattr(config, "KNOWLEDGE_DB", tmp_path / "knowledge.db")
     monkeypatch.setattr(atlas.connect, "__defaults__", (a,))

@@ -51,3 +51,43 @@ def test_error_cells_are_warnings_not_numbers(tmp_path):
 def test_closed_months_per_cube(tmp_path):
     p = provider(tmp_path, lambda *a: 1.0)
     assert p.closed_months() == {"FinMax": (2026, 9), "FinLite": (2026, 9), "FinPlan": (2026, 9)}
+
+
+def test_valid_empty_period_columns_say_no_data_not_did_not_know(tmp_path):
+    from smartass.knowledge import atlas
+    from svxml_util import FINMAX_DIMS, FINPLAN_DIMS, SOURCES, answer
+    db_path = tmp_path / "atlas_periods.db"
+    with atlas.connect(db_path) as db:
+        for conn, dims in (("FinMax", FINMAX_DIMS), ("FinPlan", FINPLAN_DIMS)):
+            for d in dims:
+                atlas.store(db, conn, d, [{"name": d, "label": d, "parent": None, "depth": 0, "order": 0}], 0.1)
+        atlas.store(db, "FinMax", "All Time Periods", [
+            {"name": "All Time Periods", "label": "All Time Periods", "parent": None, "depth": 0, "order": 0},
+            {"name": "Jan 25", "label": "Jan 25", "parent": "All Time Periods", "depth": 1, "order": 1},
+            {"name": "Feb 25", "label": "Feb 25", "parent": "All Time Periods", "depth": 1, "order": 2},
+            {"name": "Apr 25", "label": "Apr 25", "parent": "All Time Periods", "depth": 1, "order": 3},
+        ], 0.1)
+
+    class EmptyColsTransport:
+        def post(self, base, body):
+            if "GetProvisionedDataSources" in body:
+                return SOURCES
+            if "ConnectToProvider" in body:
+                return "<res_ConnectToProvider><sID>s1</sID></res_ConnectToProvider>"
+            if "OpenApplication" in body:
+                return "<res_OpenApplication><sID>s1</sID></res_OpenApplication>"
+            if "OpenCube" in body:
+                return "<res_OpenCube></res_OpenCube>"
+            # Live EPM returns None (blank) for unpopulated columns Jan 25, Feb 25 while Apr 25 has a float
+            return answer([
+                [None, None, "Actual", "NOK", "Periodic"],
+                [None, None, "Jan 25", "Feb 25", "Apr 25"],
+                ["C30 REVENUES (ac)", "T370 (un.SY)", None, None, 10.0],
+            ])
+
+    sv = svhttp.SvHttp(EmptyColsTransport(), home="https://plan1.example", db_path=db_path)
+    prov = SvHttpProvider(sv)
+    req = GridRequest("fm", "FinMax", ("ac.C30",), ("un.SY.T370",), ("Jan 25", "Feb 25", "Apr 25"), "Actual", "", "Periodic")
+    got = prov.fetch(req)
+    assert not any("did not know" in w for w in got.warnings)
+    assert any("no data" in w and "Jan 25" in w and "Feb 25" in w for w in got.warnings)

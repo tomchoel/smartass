@@ -99,13 +99,45 @@ def _products(req: GridRequest) -> list[Axis]:
     return [Axis(PRODUCT_DIMENSION, list(req.products))] if req.products else []
 
 
-def facts_from_parsed(req: GridRequest, parsed, labels: dict[str, str]) -> tuple[list[Fact], list[str]]:
+def _classify_unknowns(cube: str, unknown_members: list[str], db_path=None) -> list[str]:
+    """Separate valid atlas members whose slice happened to be empty ('no data for ...') from genuinely
+    unknown member names ('Smart View did not know ...')."""
+    if not unknown_members:
+        return []
+    if db_path is None:
+        return [f"{cube}: Smart View did not know {', '.join(unknown_members)}"]
+    from ..knowledge import atlas
+    if not atlas.present(db_path):
+        return [f"{cube}: Smart View did not know {', '.join(unknown_members)}"]
+    db = atlas.connect(db_path)
+    try:
+        real_unknown: list[str] = []
+        empty_by_dim: dict[str, list[str]] = {}
+        for item in unknown_members:
+            if ": " in item:
+                dim, mem = item.split(": ", 1)
+                if atlas.has_member(db, cube, dim, mem):
+                    empty_by_dim.setdefault(dim, []).append(mem)
+                    continue
+            real_unknown.append(item)
+    finally:
+        db.close()
+    warnings: list[str] = []
+    for dim, ms in empty_by_dim.items():
+        warnings.append(f"{cube}: no data for {dim}: {', '.join(ms)}")
+    if real_unknown:
+        warnings.append(f"{cube}: Smart View did not know {', '.join(real_unknown)}")
+    return warnings
+
+
+def facts_from_parsed(req: GridRequest, parsed, labels: dict[str, str], *,
+                      db_path=None) -> tuple[list[Fact], list[str]]:
     """Facts and warnings from one parsed grid (grid.parse output), the same for both engines.
     #Missing (None) gives no fact; an error cell gives a warning and no fact."""
     facts: list[Fact] = []
     warnings: list[str] = []
     if parsed.unknown_members:
-        warnings.append(f"{req.cube}: Smart View did not know {', '.join(parsed.unknown_members)}")
+        warnings.extend(_classify_unknowns(req.cube, parsed.unknown_members, db_path))
     elif getattr(parsed, "empty", False):
         what = ", ".join(req.accounts[:3]) + (" …" if len(req.accounts) > 3 else "")
         warnings.append(f"{req.cube}: no data for {what} in {req.scenario} ({', '.join(req.entities[:2])}; "
@@ -163,11 +195,12 @@ class SvHttpProvider:
     def fetch(self, req: GridRequest) -> FetchResult:
         t0 = time.monotonic()
         specs = grids(req)
+        db_path = getattr(self.sv, "db_path", None)
         try:
             parsed_pairs, warns = self._run_http(req.cube, specs, False, False)
             out = FetchResult(req, warnings=warns)
             for parsed, labels in parsed_pairs:
-                facts, fw = facts_from_parsed(req, parsed, labels)
+                facts, fw = facts_from_parsed(req, parsed, labels, db_path=db_path)
                 out.facts += facts
                 out.warnings += fw
         except NoFallback:
@@ -182,8 +215,12 @@ class SvHttpProvider:
                     label: str = "slice") -> SliceFetchResult:
         """Fetch arbitrary multi-dimensional grids via the same Smart View + REST dual engine."""
         t0 = time.monotonic()
+        db_path = getattr(self.sv, "db_path", None)
         try:
             parsed_pairs, warns = self._run_http(cube, specs, suppress_missing, suppress_zeros)
+            for parsed, _ in parsed_pairs:
+                if getattr(parsed, "unknown_members", None):
+                    warns.extend(_classify_unknowns(cube, parsed.unknown_members, db_path))
             out = SliceFetchResult(cube, grids=parsed_pairs, warnings=warns)
         except NoFallback:
             raise
@@ -218,6 +255,7 @@ class SvHttpProvider:
 
     def _slice_over_rest(self, cube: str, specs, label: str, first: SvHttpError,
                          suppress_missing: bool, suppress_zeros: bool) -> SliceFetchResult:
+        db_path = getattr(self.sv, "db_path", None)
         def round_once(left):
             out = SliceFetchResult(cube, route="rest", fallback=str(first),
                                    dropped=[(cube, d, m) for d, m in left])
@@ -226,14 +264,17 @@ class SvHttpProvider:
                 parsed = parse_grid(f.layout, f.values, suppress_missing, suppress_zeros)
                 out.grids.append((parsed, meta))
                 out.warnings += f.warnings
+                if parsed.unknown_members:
+                    out.warnings.extend(_classify_unknowns(cube, parsed.unknown_members, db_path))
             return out
         return self._over_rest_loop(cube, label, first, round_once)
 
     def _rest_round(self, req: GridRequest, first: SvHttpError, left: list[tuple[str, str]]) -> FetchResult:
+        db_path = getattr(self.sv, "db_path", None)
         out = FetchResult(req, route="rest", fallback=str(first), dropped=[(req.cube, d, m) for d, m in left])
         for pov, rows, cols, labels in grids(req):
             f = self.sv.fetch_rest(req.cube, pov, _without(rows, left), _without(cols, left))
-            facts, warns = facts_from_parsed(req, parse_grid(f.layout, f.values, False, False), labels)
+            facts, warns = facts_from_parsed(req, parse_grid(f.layout, f.values, False, False), labels, db_path=db_path)
             out.facts += facts
             out.warnings += f.warnings + warns
         return out

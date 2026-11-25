@@ -236,3 +236,10 @@ def test_instructions_mention_the_critic_and_the_prompts():
     text = server.INSTRUCTIONS
     assert "fin_critic" in text and "prompts" in text and "kind='answer'" in text
     assert len(text) < 2500
+
+
+def test_fin_status_reports_commit_and_build(monkeypatch):
+    import asyncio
+    _status_base(monkeypatch)
+    out = asyncio.run(server.fin_status())
+    assert out["commit"] and out["build"].startswith(server.__version__)

@@ -102,13 +102,33 @@ class KnowledgeResolver(AtlasTree):
         m = self._metric(metric)
         return pct_floor_of(m.unit, tuple(m.materiality), m.pct_floor) if m else None
 
+    def _member_metric(self, metric: str) -> Metric | None:
+        key = metric.strip().casefold()
+        for m in self._metrics.values():
+            for ms in m.members().values():
+                if len(ms) == 1 and ms[0].casefold() == key:
+                    return m
+        return None
+
     def balance(self, metric):
-        m = self._metric(metric)
-        return m.balance if m else "Periodic"
+        m = self._metric(metric) or self._member_metric(metric)
+        if m:
+            return m.balance
+        for cube in ("FinMax", "FinPlan"):
+            card = self.card(metric, cube)
+            if card and card.get("time_balance") == "balance_last":
+                return "Accumulated"
+        return "Periodic"
 
     def aggregation(self, metric):
-        m = self._metric(metric)
-        return m.aggregation if m else "sum"
+        m = self._metric(metric) or self._member_metric(metric)
+        if m:
+            return m.aggregation
+        for cube in ("FinMax", "FinPlan"):
+            card = self.card(metric, cube)
+            if card and card.get("time_balance") in ("balance_last", "average"):
+                return "last"
+        return "sum"
 
     # ---- concepts
 

@@ -151,23 +151,41 @@ class StaticResolver:
         m = self._m.get(metric.lower())
         return pct_floor_of(m.unit, m.materiality, m.pct_floor) if m else None
 
-    def balance(self, metric: str) -> Balance:
-        m = self._m.get(metric.lower())
-        return m.balance if m else "Periodic"
-
-    def aggregation(self, metric: str) -> Aggregation:
-        m = self._m.get(metric.lower())
-        return m.aggregation if m else "sum"
-
     def exists(self, member: str, cube: str) -> bool:
         return member in self._known
 
     def children(self, member: str, cube: str) -> tuple[str, ...]:
         return self.tree.get(member, ())
 
+    def parents(self, member: str, cube: str, dimension: str | None = None) -> tuple[str, ...]:
+        """All parents of member in tree (supports shared multi-parent members)."""
+        want = member.casefold()
+        return tuple(p for p, kids in self.tree.items() if any(k.casefold() == want for k in kids))
+
+    def resolve_product(self, name: str, cube: str) -> str:
+        return name
+
     def weight(self, member: str, cube: str, parent: str | None = None) -> float:
-        """Consolidation weight in its parent: 1.0 add, -1.0 subtract, 0.0 ignore ('~'). Fixed per member here."""
+        """Consolidation weight in its parent: checks (parent, member) first, then member; default 1.0."""
+        if parent is not None and (parent, member) in self.weights:
+            return self.weights[(parent, member)]
         return self.weights.get(member, 1.0)
+
+    def _member_metric(self, token: str) -> MetricDef | None:
+        key = token.strip().casefold()
+        for d in self.metrics:
+            for ms in d.members.values():
+                if len(ms) == 1 and ms[0].casefold() == key:
+                    return d
+        return None
+
+    def balance(self, metric: str) -> Balance:
+        m = self._m.get(metric.lower()) or self._member_metric(metric)
+        return m.balance if m else "Periodic"
+
+    def aggregation(self, metric: str) -> Aggregation:
+        m = self._m.get(metric.lower()) or self._member_metric(metric)
+        return m.aggregation if m else "sum"
 
     def label(self, member: str, cube: str) -> str:
         return self.labels.get(member, member)

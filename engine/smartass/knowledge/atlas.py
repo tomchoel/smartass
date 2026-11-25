@@ -332,21 +332,89 @@ def children(db, connection: str, name: str, limit: int = 500) -> list[dict]:
     return [{"dimension": d, "name": n, "label": lab, "depth": dep} for d, n, lab, dep in rows]
 
 
-def descendants(db, connection: str, name: str, leaves_only: bool = False, limit: int = 5000) -> list[dict]:
-    sql = """
+def descendants(db, connection: str, name: str, leaves_only: bool = False, limit: int = 5000,
+                dimension: str | None = None) -> list[dict]:
+    dim_clause = "AND dimension=?4 " if dimension else ""
+    dim_m_clause = "AND m.dimension=t.dimension " if not dimension else "AND m.dimension=?4 "
+    args: tuple = (connection, name, limit, dimension) if dimension else (connection, name, limit)
+    leaf_filter = (
+        "WHERE NOT EXISTS ("
+        "  SELECT 1 FROM member c WHERE c.connection=?1 AND c.dimension=t.dimension AND c.parent=t.name"
+        ") "
+        if leaves_only else ""
+    )
+    sql = f"""
     WITH RECURSIVE t(name, label, depth, dimension) AS (
-      SELECT name, label, depth, dimension FROM member WHERE connection=?1 AND parent=?2
+      SELECT name, label, depth, dimension FROM member WHERE connection=?1 AND parent=?2 {dim_clause}
       UNION
-      SELECT m.name, m.label, m.depth, m.dimension FROM t CROSS JOIN member m ON m.connection=?1 AND m.parent=t.name
-    ) SELECT DISTINCT name, label, depth, dimension FROM t LIMIT ?3"""
-    # CROSS JOIN fixes the join order: drive from the rows found so far and look children up by the
-    # (connection, parent) index. The planner otherwise scanned all members of the cube per step (11-45 s).
-    rows = db.execute(sql, (connection, name, limit)).fetchall()
-    out = [{"name": n, "label": lab, "depth": dep, "dimension": d} for n, lab, dep, d in rows]
-    if leaves_only:
-        parents = {r[0] for r in db.execute("SELECT DISTINCT parent FROM member WHERE connection=?", (connection,))}
-        out = [o for o in out if o["name"] not in parents]
-    return out
+      SELECT m.name, m.label, m.depth, m.dimension FROM t
+      CROSS JOIN member m ON m.connection=?1 AND m.parent=t.name {dim_m_clause}
+    ) SELECT DISTINCT name, label, depth, dimension FROM t {leaf_filter}LIMIT ?3"""
+    rows = db.execute(sql, args).fetchall()
+    return [{"name": n, "label": lab, "depth": dep, "dimension": d} for n, lab, dep, d in rows]
+
+
+def expand_members(db, connection: str, dimension: str, name: str, mode: str = "children",
+                   max_members: int = 5000) -> tuple[list[str], int, bool]:
+    """Expand a hierarchy member (`children` | `descendants` | `leaves`) returning `(names, total_matching, truncated)`."""
+    m = mode.casefold()
+    if m == "children":
+        rows = db.execute(
+            "SELECT name FROM member WHERE connection=? AND dimension=? AND parent=? ORDER BY ord",
+            (connection, dimension, name),
+        ).fetchall()
+        names = list(dict.fromkeys(r[0] for r in rows))
+        total = len(names)
+        if total > max_members:
+            return names[:max_members], total, True
+        return names, total, False
+    if m in ("descendants", "leaves"):
+        leaves_only = m == "leaves"
+        got = descendants(db, connection, name, leaves_only=leaves_only, limit=max_members + 1, dimension=dimension)
+        truncated = len(got) > max_members
+        names = [x["name"] for x in got[:max_members]]
+        return names, len(got) if truncated else len(names), truncated
+    raise ValueError(f"unknown expand mode {mode!r}")
+
+
+def all_parents(db, connection: str, name: str, dimension: str | None = None) -> list[str]:
+    """Every parent placement of a member (shared members appear under multiple parents)."""
+    sql = ("SELECT DISTINCT parent FROM member WHERE connection=? AND name=? COLLATE NOCASE "
+           "AND parent IS NOT NULL" + (" AND dimension=?" if dimension else "") + " ORDER BY ord")
+    args = (connection, name, dimension) if dimension else (connection, name)
+    return [r[0] for r in db.execute(sql, args).fetchall() if r[0]]
+
+
+def resolve_product(db, connection: str, name: str) -> str:
+    """Resolve a product name or unambiguous bare code (e.g. 'P43' -> 'pd.SY.P43') in All Products."""
+    from ..model.errors import GuardError
+    direct = canonical(db, connection, "All Products", name)
+    if direct:
+        return direct
+    want = name.strip()
+    if not want:
+        return name
+    rows = db.execute(
+        "SELECT DISTINCT name, label FROM member WHERE connection=? AND dimension='All Products'",
+        (connection,),
+    ).fetchall()
+    low = want.casefold()
+    matches: list[str] = []
+    for full, lab in rows:
+        tail = full.rsplit(".", 1)[-1].casefold()
+        head_tok = (lab or "").strip().split(" ", 1)[0].casefold()
+        if tail == low or head_tok == low:
+            if full not in matches:
+                matches.append(full)
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        matches.sort()
+        raise GuardError(
+            f"ambiguous product code {name!r} in {connection}: {', '.join(matches[:8])}",
+            "use the full member name (e.g. 'pd.SY.<code>') from the candidates above",
+        )
+    return name
 
 
 def ancestors(db, connection: str, name: str) -> list[str]:
@@ -382,14 +450,22 @@ def _clean_label(name: str, label: str | None) -> str:
     return re.sub(r"\s*\([^()]*\)\s*$", "", label).strip() or name
 
 
-def tree(db, connection: str, dimension: str | None = None, parent: str | None = None, depth: int = 1,
-         leaves_only: bool = False, limit: int = 200) -> list[dict]:
-    """Walk hierarchy nodes under `parent` (or top levels of `dimension`) up to `depth` hops, enriched with card & alias."""
-    max_depth = max(1, min(int(depth), 6))
-    lim = max(1, min(int(limit), 1000))
+MAX_TREE_DEPTH = 20
+MAX_TREE_LIMIT = 5000
+
+
+def tree_page(db, connection: str, dimension: str | None = None, parent: str | None = None, depth: int = 1,
+              leaves_only: bool = False, limit: int = 100) -> dict:
+    """Walk hierarchy nodes up to effective_depth/limit and return items + explicit truncation metadata."""
+    req_depth = int(depth)
+    req_limit = int(limit)
+    max_depth = max(1, min(req_depth, MAX_TREE_DEPTH))
+    lim = max(1, min(req_limit, MAX_TREE_LIMIT))
     root = parent or dimension
     if not root:
-        return []
+        return {"items": [], "truncated": False, "has_more": False, "effective_depth": max_depth,
+                "effective_limit": lim, "clamped_depth": req_depth != max_depth,
+                "clamped_limit": req_limit != lim}
     dim_filter = dimension
     if not dim_filter and root:
         row = db.execute("SELECT dimension FROM member WHERE connection=? AND name=? COLLATE NOCASE LIMIT 1",
@@ -414,7 +490,8 @@ def tree(db, connection: str, dimension: str | None = None, parent: str | None =
     queue: list[tuple[str, int]] = [(root, 0)]
     seen_edges: set[tuple[str, str]] = set()
     out: list[dict] = []
-    while queue and len(out) < lim:
+    has_more = False
+    while queue:
         cur_parent, lvl = queue.pop(0)
         next_lvl = lvl + 1
         sql = ("SELECT dimension, name, label, parent, depth FROM member WHERE connection=? AND parent=? "
@@ -431,6 +508,9 @@ def tree(db, connection: str, dimension: str | None = None, parent: str | None =
             seen_edges.add((par or "", name))
             is_parent = name in parents_set
             if not leaves_only or not is_parent:
+                if len(out) >= lim:
+                    has_more = True
+                    break
                 item: dict = {
                     "dimension": d,
                     "name": name,
@@ -454,8 +534,23 @@ def tree(db, connection: str, dimension: str | None = None, parent: str | None =
                     if storage:
                         item["storage"] = storage
                 out.append(item)
-                if len(out) >= lim:
-                    break
             if next_lvl < max_depth and is_parent:
                 queue.append((name, next_lvl))
-    return out
+        if has_more:
+            break
+    return {
+        "items": out,
+        "truncated": has_more,
+        "has_more": has_more,
+        "effective_depth": max_depth,
+        "effective_limit": lim,
+        "clamped_depth": req_depth != max_depth,
+        "clamped_limit": req_limit != lim,
+    }
+
+
+def tree(db, connection: str, dimension: str | None = None, parent: str | None = None, depth: int = 1,
+         leaves_only: bool = False, limit: int = 200) -> list[dict]:
+    """Walk hierarchy nodes under `parent` (or top levels of `dimension`) up to `depth` hops."""
+    return tree_page(db, connection, dimension=dimension, parent=parent, depth=depth,
+                     leaves_only=leaves_only, limit=limit)["items"]

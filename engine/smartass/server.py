@@ -11,7 +11,7 @@ import datetime as dt
 
 from mcp.server.mcpserver import Context, MCPServer
 
-from . import __version__
+from . import __build__, __commit__, __dirty__, __started_at__, __version__
 from .knowledge import atlas
 from .core import logsetup, runlog
 from .core.timing import COM_PREFIX
@@ -128,11 +128,13 @@ def fin_tree(cube: str | None = None, dimension: str | None = None, parent: str 
 async def fin_slice(cube: str, rows: dict[str, str | list[str]], cols: dict[str, str | list[str]] | None = None,
                     pov: dict[str, str] | None = None, periods: str | list[str] | None = None,
                     compare: list[str] | None = None, preliminary: bool = False,
-                    expand: dict[str, str] | None = None, suppress_missing: bool = True, limit: int = 200) -> dict:
+                    expand: dict[str, str] | None = None, suppress_missing: bool = True,
+                    total: bool = False, limit: int = 200) -> dict:
     """Tier 1 read-only multi-dimensional EPM cube slice (zero Excel side-effects, no 40-row key_values limit).
     Supports any cube dimension (All Counterparts, All Projects, All Systems, All Reserves, All Functions, Products,
     etc.). expand e.g. {'All Accounts': 'children'} or {'All Entities': 'leaves'} auto-walks hierarchy members.
-    compare e.g. ['ly'] or ['budget', 'forecast'] computes deterministic variance columns in Python."""
+    compare e.g. ['ly'] or ['budget', 'forecast'] unions missing comparison-only rows and computes deterministic
+    variance columns in Python. total=True appends flow sums (skipping non-additive levels like STA20Y)."""
     from .data.slice import run_slice
     atlas.need_atlas()
     provider = _provider()
@@ -143,7 +145,7 @@ async def fin_slice(cube: str, rows: dict[str, str | list[str]], cols: dict[str,
         with contextlib.closing(_resolver(fy)) as r:
             return run_slice(provider, r, closed, cube=cube, rows=rows, cols=cols, pov=pov, periods=periods,
                              compare=compare, preliminary=preliminary, expand=expand,
-                             suppress_missing=suppress_missing, limit=limit)
+                             suppress_missing=suppress_missing, total=total, limit=limit)
     return await asyncio.to_thread(_run)
 
 
@@ -536,7 +538,13 @@ async def fin_status(restart: bool = False) -> dict:
     import os
 
     from .core import config
-    out: dict = {"version": __version__}
+    out: dict = {
+        "version": __version__,
+        "commit": __commit__,
+        "build": __build__,
+        "dirty": __dirty__,
+        "started_at": __started_at__,
+    }
     if restart:
         if os.environ.get("SVKIT_PROXY"):
             out["restarted"] = "relay"             # run_server.py replaced the child before forwarding this call

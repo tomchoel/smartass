@@ -135,7 +135,7 @@ def test_a_drawn_answer_logs_the_excel_job_stages_and_its_com_call_total(monkeyp
     monkeypatch.setattr(server, "run_prepare", lambda raw, provider, lines=None, **kw: "PRE")
     monkeypatch.setattr(server, "excel_job", job)
     cell = {"All Accounts": "ac.C60", "All Entities": "un.SY.2TEC", "All Time Periods": "Sep 26"}
-    asyncio.run(serverkit.guard(server.fin_drill)(cell=cell))
+    asyncio.run(serverkit.guard(server.fin_drill)(cell=cell, target="session"))
     line = json.loads((tmp_path / "runs.jsonl").read_text(encoding="utf-8"))
     assert (line["tool"], line["q"], line["workbook"]) == ("fin_drill", 7, "W.xlsx")
     assert line["question"].startswith("Ledger lines behind")

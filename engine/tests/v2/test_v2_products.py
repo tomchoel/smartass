@@ -207,3 +207,113 @@ def test_ranking_by_product_end_to_end_records_and_replays(tmp_path):
     again = prepare(pspec(), presolver(), ReplayProvider(tmp_path / "g.json"))
     assert again.result.key_values == live.result.key_values
     assert live.result.key_values["Top 2 by Revenue · A Alpha"]["Actual"] == 50.0
+
+
+# ---- Issue 1 & 8: product hierarchy overlap deduplication, multi-parent & bare codes
+
+def _hier_resolver():
+    from smartass.model.resolver import MetricDef, StaticResolver
+    # Tree: pd.SY.P49 -> (pd.SY.STROM [+], pd.SY.DL000 [+])
+    #       pd.SY.P43 -> pd.SY.MID -> (pd.SY.DAB00 [+], pd.SY.DTT00 [+])
+    #       pd.SY.ALT -> pd.SY.SHARED [~ ignored in ALT, + in P49]
+    tree = {
+        "pd.SY.P49": ("pd.SY.STROM", "pd.SY.DL000", "pd.SY.SHARED"),
+        "pd.SY.ALT": ("pd.SY.SHARED",),
+        "pd.SY.P43": ("pd.SY.MID",),
+        "pd.SY.MID": ("pd.SY.DAB00", "pd.SY.DTT00"),
+    }
+    base = resolver()
+    return StaticResolver(
+        metrics=[m for m in base.metrics] + [MetricDef("COGS", {"FinMax": ("ac.C40S",)}, sign="cost")],
+        tree={**base.tree, **tree},
+        extra_members={"pd.SY.P49", "pd.SY.STROM", "pd.SY.DL000", "pd.SY.ALT", "pd.SY.SHARED",
+                       "pd.SY.P43", "pd.SY.MID", "pd.SY.DAB00", "pd.SY.DTT00"},
+        labels={**base.labels, "pd.SY.P49": "Power Group", "pd.SY.STROM": "Power Core", "pd.SY.DL000": "Delivery",
+                "pd.SY.SHARED": "Shared", "pd.SY.ALT": "Alt Group",
+                "pd.SY.P43": "Fixed Group", "pd.SY.DAB00": "Access", "pd.SY.DTT00": "Transport"},
+        weights={("pd.SY.ALT", "pd.SY.SHARED"): 0.0},
+    )
+
+
+def _hier_facts(prods_vals: dict[str, float]) -> Frame:
+    return Frame([
+        Fact("FinMax", "fm", "ac.C40S", "un.SY.2BUS", per, "Actual", "", v * factor, product=p)
+        for p, v in prods_vals.items()
+        for per, factor in (("Sep 26", 1.0), ("Sep 25", 0.9))
+    ])
+
+
+def test_product_overlap_parent_and_children_counted_once_across_all_blocks():
+    prods = ["pd.SY.P49", "pd.SY.STROM", "pd.SY.DL000"]
+    fr = _hier_facts({"pd.SY.P49": -100.0, "pd.SY.STROM": -60.0, "pd.SY.DL000": -40.0})
+    d = pspec([
+        {"type": "table", "query": "fm", "rows": "products", "metric": "COGS", "sort": "abs", "top": 2},
+        {"type": "table", "query": "fm", "title": "P&L", "metrics": ["COGS"]},
+        {"type": "kpi_tiles", "query": "fm", "metrics": ["COGS"]},
+    ], products=prods)
+    d["queries"][0]["metrics"] = ["COGS"]
+    res = compute(AnalysisSpec.model_validate(d), _hier_resolver(), CLOSED, fr)
+
+    tbl_prod = res.outs[0]
+    cells = res.cells
+    # Total counts P49 once (-100.0), not -200.0!
+    assert cells.get(ck("b0", "total", 0)) == pytest.approx(-100.0)
+    # P49 and STROM shown (top 2), DL000 is already inside P49 so no bogus Other = -P49 - STROM!
+    assert "other" not in [ln.key for ln in tbl_prod.lines]
+    # All non-sum product lines keep their individual amounts; covered children show nesting
+    assert cells.get(ck("b0", "p0", 0)) == pytest.approx(-100.0)
+    assert cells.get(ck("b0", "p1", 0)) == pytest.approx(-60.0)
+    assert tbl_prod.lines[1].level >= 1
+    # Metric table & KPI tiles also count P49 once (-100.0), never -200.0
+    assert cells.get(ck("b1", "m0", 0)) == pytest.approx(-100.0)
+    assert cells.get(ck("b2", "k0", 0)) == pytest.approx(-100.0)
+    # Finding names overlapping pairs explicitly
+    assert any("pd.SY.P49" in f.text and "pd.SY.STROM" in f.text for f in res.findings)
+
+
+def test_three_level_product_overlap_and_weight_zero_ignored_edge():
+    # Three-level chain: P43 -> MID -> (DAB00, DTT00) when MID omitted
+    r = _hier_resolver()
+    fr = _hier_facts({"pd.SY.P43": -300.0, "pd.SY.DAB00": -200.0, "pd.SY.DTT00": -100.0})
+    d = pspec([{"type": "ranking", "query": "fm", "metric": "COGS", "rows": "products", "top": 5}],
+              products=["pd.SY.P43", "pd.SY.DAB00", "pd.SY.DTT00"])
+    d["queries"][0]["metrics"] = ["COGS"]
+    res = compute(AnalysisSpec.model_validate(d), r, CLOSED, fr)
+    assert res.cells.get(ck("b0", "total", 0)) == pytest.approx(-300.0)
+    assert any("pd.SY.P43" in f.text and "pd.SY.DAB00" in f.text for f in res.findings)
+
+    # Shared child weighted '~' (0.0) under ALT does NOT overlap ALT; counted under both!
+    fr_shared = _hier_facts({"pd.SY.ALT": -50.0, "pd.SY.SHARED": -20.0})
+    d_shared = pspec([{"type": "table", "query": "fm", "rows": "products", "metric": "COGS"}],
+                     products=["pd.SY.ALT", "pd.SY.SHARED"])
+    d_shared["queries"][0]["metrics"] = ["COGS"]
+    res_shared = compute(AnalysisSpec.model_validate(d_shared), r, CLOSED, fr_shared)
+    assert res_shared.cells.get(ck("b0", "total", 0)) == pytest.approx(-70.0)
+    assert not any("pd.SY.SHARED" in f.text for f in res_shared.findings)
+
+    # Parent only vs children only: exact totals, zero overlap findings
+    fr_ch = _hier_facts({"pd.SY.STROM": -60.0, "pd.SY.DL000": -40.0})
+    d_ch = pspec([{"type": "table", "query": "fm", "rows": "products", "metric": "COGS"}],
+                 products=["pd.SY.STROM", "pd.SY.DL000"])
+    d_ch["queries"][0]["metrics"] = ["COGS"]
+    res_ch = compute(AnalysisSpec.model_validate(d_ch), r, CLOSED, fr_ch)
+    assert res_ch.cells.get(ck("b0", "total", 0)) == pytest.approx(-100.0)
+    assert not any("overlap" in f.text.lower() for f in res_ch.findings)
+
+
+def test_bare_product_code_resolved_when_unambiguous_and_refused_when_ambiguous(tmp_path):
+    from smartass.knowledge import atlas
+    from smartass.knowledge.atlas_tree import AtlasTree
+    p = tmp_path / "a.db"
+    db = atlas.connect(p)
+    atlas.store(db, "FinMax", "All Products", [
+        {"name": "All Products", "label": "All Products", "parent": None, "depth": 0, "order": 0},
+        {"name": "pd.SY.P43", "label": "P43 Fixed Access (pd.SY)", "parent": "All Products", "depth": 1, "order": 1},
+        {"name": "pd.SY.X99", "label": "X99 One (pd.SY)", "parent": "All Products", "depth": 1, "order": 2},
+        {"name": "pd.OT.X99", "label": "X99 Two (pd.OT)", "parent": "All Products", "depth": 1, "order": 3},
+    ], 0.1)
+    tree = AtlasTree(db, 26)
+    assert tree.resolve_product("P43", "FinMax") == "pd.SY.P43"
+    assert tree.resolve_product("pd.SY.P43", "FinMax") == "pd.SY.P43"
+    with pytest.raises(GuardError, match=r"ambiguous.*pd\.OT\.X99.*pd\.SY\.X99"):
+        tree.resolve_product("X99", "FinMax")
