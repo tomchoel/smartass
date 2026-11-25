@@ -93,3 +93,20 @@ def test_a_grid_without_any_data_is_no_data_not_unknown_members():
             ("Streamix Subs", "BANORWAY", None, None), ("Streamix ARPU", "BANORWAY", None, None))
     p = parse(lay, vals, suppress_missing=True, suppress_zeros=False)
     assert p.unknown_members == [] and p.empty is True and p.rows == []
+
+
+def test_partial_empty_leading_months_stay_in_unknown_members_for_classification():
+    # Leading months with raw None cells (when later months have data) must preserve unknown_members on parse()
+    # so SvHttpProvider can reclassify valid atlas periods into "no data for ..." rather than ignoring or mislabeling.
+    rows = [Axis("All Entities", ["un.SY.T370"]), Axis("All Accounts", ["ac.C60"])]
+    cols = [Axis("All Time Periods", ["Jan 25", "Feb 25", "Apr 25"])]
+    lay = Layout([("All Scenarios", "Actual")], rows, cols)
+    vals = (
+        (None, None, "Actual", None, None),
+        (None, None, "Jan 25", "Feb 25", "Apr 25"),
+        ("T370 Test (un.SY)", "C60 External OPEX (ac)", None, None, -2691966.28),
+    )
+    p = parse(lay, vals, suppress_missing=True, suppress_zeros=False)
+    assert p.empty is False
+    assert p.unknown_members == ["All Time Periods: Feb 25", "All Time Periods: Jan 25"] or sorted(p.unknown_members) == [
+        "All Time Periods: Feb 25", "All Time Periods: Jan 25"]

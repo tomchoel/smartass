@@ -258,3 +258,41 @@ def test_expand_reconciliation_exact_and_skipped_for_shared(tmp_path):
                      pov={"All Accounts": "ac.C40S", "All Entities": "un.SY.5BMT_T"}, periods="closed")
     assert res2["reconciliation"][0]["status"] == "skipped"
     assert "shared" in res2["reconciliation"][0]["reason"].lower()
+
+
+def test_large_shared_hierarchy_over_1200_leaves_and_fin_tree_flags(tmp_path):
+    # Realistic shape (~1,250 leaves across 3 levels + diamond shared nodes) beating old LIMIT 1000 & 400-row chunks
+    db_path, db = _rich_atlas_db(tmp_path)
+    rows = [{"name": "All Products", "label": "All Products", "parent": None, "depth": 0, "order": 0},
+            {"name": "pd.SY", "label": "pd.SY", "parent": "All Products", "depth": 1, "order": 1},
+            {"name": "pd.SY.G1", "label": "Group 1", "parent": "pd.SY", "depth": 2, "order": 1},
+            {"name": "pd.SY.G2", "label": "Group 2", "parent": "pd.SY", "depth": 2, "order": 2}]
+    for i in range(1, 1251):
+        par = "pd.SY.G1" if i <= 700 else "pd.SY.G2"
+        rows.append({"name": f"pd.SY.L{i:04d}", "label": f"Leaf {i}", "parent": par, "depth": 3, "order": i})
+    # Shared diamond placement: L0001..L0005 also under G2
+    for i in range(1, 6):
+        rows.append({"name": f"pd.SY.L{i:04d}", "label": f"Leaf {i}", "parent": "pd.SY.G2", "depth": 3, "order": 2000 + i})
+    with atlas.connect(db_path) as c:
+        atlas.store(c, "FinMax", "All Products", rows, 0.1)
+
+    # fin_tree with leaves_only & limit=100000: clamps to 5000, finds all 1,250 unique leaves across 1,255 placements
+    t_res = browse_tree(_DummyResolver(db), cube="FinMax", dimension="All Products", parent="pd.SY",
+                        depth=20, leaves_only=True, limit=100000)
+    assert t_res["count"] == 1255 and t_res["truncated"] is False
+    assert {x["name"] for x in t_res["members"]} == {f"pd.SY.L{i:04d}" for i in range(1, 1251)}
+    assert t_res["effective_limit"] == 5000 and t_res["warnings"]
+
+    # run_slice batches >1200 expanded leaves in 400-row chunks without dropping tail leaves like L1250
+    def value(r_axes, c_axes, pov):
+        return 10.0 if r_axes[0] == "pd.SY.L1250" else (1.0 if r_axes[0].startswith("pd.SY.L") else None)
+
+    sv = svhttp.SvHttp(value_transport := EchoTransport(value), home="https://plan1.example", db_path=db_path)
+    s_res = run_slice(SvHttpProvider(sv), _DummyResolver(db), {"FinMax": (2026, 9)},
+                      cube="FinMax", rows={"All Products": ["pd.SY"]}, expand={"All Products": "leaves"},
+                      pov={"All Accounts": "ac.C30", "All Entities": "un.SY.5BMT_T"}, periods="closed", limit=2000)
+    assert s_res["row_count"] == 1250 and not s_res["truncated"]
+    by_p = {r["All Products"]: r["Sep 26"] for r in s_res["rows"]}
+    assert by_p["pd.SY.L1250"] == pytest.approx(10.0)
+    assert len(value_transport.grids) >= 4
+    assert s_res["reconciliation"][0]["status"] == "skipped"

@@ -15,7 +15,7 @@ from smartass.model.blocks.concept import sheet_text
 from smartass.model.frame import Fact, Frame
 from smartass.model.resolver import MetricDef, StaticResolver
 from smartass.model.spec import AnalysisSpec
-from smartass.model.units import COUNT, NOK, OTHER, PCT, PER_UNIT, short_name, unit_class
+from smartass.model.units import COUNT, FTE, NOK, OTHER, PCT, PER_UNIT, short_name, unit_class
 from smartass.render import charts as C
 from smartass.render.keypoints import key_points
 from smartass.render.layout import answer_subtitle, layout, sheet_label
@@ -117,6 +117,20 @@ def test_unit_class_from_the_semantic_metric_or_the_finplan_name():
     assert unit_class(r, "Fixed Streamix ARPU", "FinPlan") == PER_UNIT
     assert unit_class(r, "Churn %", "FinPlan") == PCT
     assert unit_class(r, "Something", "FinPlan") == OTHER
+
+
+def test_unit_class_resolves_raw_single_member_metric_like_sta20y():
+    from smartass.model.resolver import MetricDef, StaticResolver
+    r = StaticResolver(
+        metrics=[
+            MetricDef("FTE", {"FinMax": ("ac.STA20Y",)}, unit="FTE", balance="Accumulated", aggregation="last"),
+            MetricDef("Revenue", {"FinMax": ("ac.C30",)}, unit="NOK"),
+        ],
+        extra_members={"ac.STA20Y", "ac.C30", "ac.BS1"},
+    )
+    assert unit_class(r, "ac.STA20Y", "FinMax") == FTE
+    assert unit_class(r, "ac.C30", "FinMax") == NOK
+    assert unit_class(r, "ac.BS1", "FinMax") == NOK
 
 
 def _fp_frame(actual=True, budget=True):

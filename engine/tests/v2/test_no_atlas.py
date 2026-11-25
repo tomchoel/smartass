@@ -69,6 +69,9 @@ ENTRIES = {
     "fin_lookup member": lambda: serverkit.guard(server.fin_lookup)("2BUS", kind="member"),
     "fin_analyze spec": lambda: serverkit.guard(server.fin_analyze)(spec=AnalysisSpec.model_validate(spec_dict())),
     "fin_analyze patch": lambda: serverkit.guard(server.fin_analyze)(patch={"plan": {"purpose": "new"}}),
+    "fin_tree": lambda: serverkit.guard(server.fin_tree)("FinMax", dimension="All Accounts"),
+    "fin_slice": lambda: serverkit.guard(server.fin_slice)(
+        "FinMax", rows={"All Accounts": ["ac.C40S"]}, cols={"All Time Periods": ["Sep 26"]}),
     "fin_drill": lambda: serverkit.guard(server.fin_drill)(CELL),
     "fin_refresh": lambda: serverkit.guard(server.fin_refresh)(),
 }

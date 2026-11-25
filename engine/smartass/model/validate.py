@@ -94,7 +94,7 @@ def guard_spec(spec: AnalysisSpec, r: Resolver, closed: Closed) -> list[Finding]
     by_id = {q.id: q for q in spec.queries}
     for b in map(data_block, spec.blocks):
         if isinstance(b, ConceptBlock):
-            _guard_concept(b, by_id[b.query], r)
+            _guard_concept(b, by_id[b.query], r, soft)
         if isinstance(b, TableBlock) and b.periods and b.query in by_id:
             _guard_groups(b, by_id[b.query], closed_for(closed, by_id[b.query].cube))
     return soft
@@ -132,7 +132,7 @@ def _guard_groups(b: TableBlock, q, cl) -> None:
                              "widen the query periods or drop the group")
 
 
-def _guard_concept(b: ConceptBlock, q, r: Resolver) -> None:
+def _guard_concept(b: ConceptBlock, q, r: Resolver, soft: list[Finding] | None = None) -> None:
     c = r.concept(b.concept)
     if c is None:
         raise GuardError(f"unknown concept {b.concept!r}", "find it with fin_lookup(kind='concept')")
@@ -142,6 +142,12 @@ def _guard_concept(b: ConceptBlock, q, r: Resolver) -> None:
     if gone:
         raise GuardError(f"concept {c.id}: {', '.join(gone[:10])} not in {q.cube}",
                          "fix the concept file (knowledge/semantic/concepts) or refresh the atlas")
+    if soft is not None:
+        from .products import analyze_products
+        for p in c.picks():
+            if len(p.products) > 1:
+                for w in analyze_products(p.products, r, q.cube).warnings:
+                    soft.append(Finding("warning", w, f"{q.id}:{c.id}"))
 
 
 def guard_result(outs: list[BlockOut], cells: Cells) -> None:

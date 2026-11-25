@@ -23,6 +23,7 @@ from ...knowledge.semantic import expr_terms
 from ..context import Ctx
 from ..expr import Const, Expr, Mul, Neg, Ratio, Ref, Sub, Sum, pick
 from ..periods import label, period_label
+from ..products import analyze_products
 from ..series import months, scenario
 from ..spec import ConceptBlock, Query
 from .common import HEAD, BlockOut, Line, ck, code_of, derived, scenario_heads
@@ -107,7 +108,7 @@ def build_concept(b: ConceptBlock, ctx: Ctx, key: str) -> BlockOut:
         f = {"Cube": (q.cube,), "Query": (ptag if p.products else etag,), "Account": (p.account,),
              "Entity": (q.entity,) if p.products else tuple(p.entities)}
         if p.products:
-            f["Product"] = tuple(p.products)
+            f["Product"] = analyze_products(p.products, ctx.resolver, q.cube).dedup_products
         f |= {"Period": tuple(label(m) for m in months(q, series, closed)), "Scenario": (scen,)}
         if ver:
             f["Version"] = (ver,)

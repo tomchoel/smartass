@@ -8,11 +8,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ..context import Ctx
-from ..expr import Ref, Sub, Sum
+from ..expr import Neg, Ref, Sub, Sum
 from ..periods import label
 from ..series import months
 from ..spec import DriversBlock
-from .common import BlockOut, Line, ck, code_of, counted, metric_code, metric_label, row_cells, scenario_heads
+from .common import BlockOut, Line, ck, code_of, counted, derived, metric_code, metric_label, row_cells, scenario_heads
 
 @dataclass(frozen=True)
 class DrillRequest:
@@ -92,22 +92,29 @@ def build_drivers(b: DriversBlock, ctx: Ctx, key: str) -> BlockOut:
             return
         scored = sorted(((variance_of(k), k) for k in raw_kids), key=lambda t: -abs(t[0]))
         gross = sum(abs(v) for v, _ in scored) or 1.0
-        covered, skipped = 0.0, []
+        covered, skipped, shown_kids = 0.0, [], []
         for i, (v, k) in enumerate(scored):
             if covered / gross >= b.cover or i >= b.max_per_level:
                 skipped = scored[i:]
                 break
             lkey = f"{prefix}{i}"
+            shown_kids.append((lkey, k))
             out.lines.append(Line(lkey, r.label(k, q.cube), row_cells(ctx, q, k, cols, key, lkey),
                                   level=level + 1, metric=k, entity=q.entity, code=code_of(k)))
             walk_accounts(k, level + 1, lkey + "_")
             covered += abs(v)
         if b.include_other and skipped:
             okey = f"{prefix}other"
-            cells = [Sub(ctx.pick(q, acc, c), Sum(tuple(
-                Ref(ck(key, out.lines[j].key, ci)) for j in range(len(out.lines))
-                if out.lines[j].key.startswith(prefix) and out.lines[j].level == level + 1
-            ))) if c in ("value", b.base) else None for ci, c in enumerate(cols)]
+            cells: list = []
+            for ci, c in enumerate(cols):
+                if c in ("value", b.base):
+                    terms = tuple(
+                        Neg(Ref(ck(key, lk, ci))) if r.weight(kid, q.cube, acc) < 0 else Ref(ck(key, lk, ci))
+                        for lk, kid in shown_kids
+                    )
+                    cells.append(Sub(ctx.pick(q, acc, c), Sum(terms)))
+                else:
+                    cells.append(derived(c, cols, key, okey, j=ci))
             out.lines.append(Line(okey, f"Other accounts ({len(skipped)})", cells, level=level + 1))
 
     def walk_products() -> None:

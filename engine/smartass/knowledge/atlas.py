@@ -417,14 +417,26 @@ def resolve_product(db, connection: str, name: str) -> str:
     return name
 
 
-def ancestors(db, connection: str, name: str) -> list[str]:
-    chain, cur, seen = [], name, set()
-    while cur and cur not in seen:
-        seen.add(cur)
-        r = db.execute("SELECT parent FROM member WHERE connection=? AND name=? LIMIT 1", (connection, cur)).fetchone()
-        cur = r[0] if r else None
-        if cur:
-            chain.append(cur)
+def ancestors(db, connection: str, name: str, dimension: str | None = None) -> list[str]:
+    """Walk all parent placements (BFS) for member, optionally scoped by dimension."""
+    if dimension is None:
+        row = db.execute(
+            "SELECT dimension FROM member WHERE connection=? AND name=? COLLATE NOCASE ORDER BY depth LIMIT 1",
+            (connection, name),
+        ).fetchone()
+        if row:
+            dimension = row[0]
+    queue = [name]
+    seen = {name.casefold()}
+    chain: list[str] = []
+    while queue:
+        cur = queue.pop(0)
+        for par in all_parents(db, connection, cur, dimension=dimension):
+            low = par.casefold()
+            if low not in seen:
+                seen.add(low)
+                chain.append(par)
+                queue.append(par)
     return chain
 
 

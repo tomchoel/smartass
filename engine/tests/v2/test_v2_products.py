@@ -317,3 +317,67 @@ def test_bare_product_code_resolved_when_unambiguous_and_refused_when_ambiguous(
     assert tree.resolve_product("pd.SY.P43", "FinMax") == "pd.SY.P43"
     with pytest.raises(GuardError, match=r"ambiguous.*pd\.OT\.X99.*pd\.SY\.X99"):
         tree.resolve_product("X99", "FinMax")
+
+
+def test_atlas_ancestors_walks_all_shared_parents_and_respects_dimension(tmp_path):
+    from smartass.knowledge import atlas
+    p = tmp_path / "a.db"
+    db = atlas.connect(p)
+    atlas.store(db, "FinMax", "All Products", [
+        {"name": "All Products", "label": "All Products", "parent": None, "depth": 0, "order": 0},
+        {"name": "pd.SY.TOP1", "label": "TOP1", "parent": "All Products", "depth": 1, "order": 1},
+        {"name": "pd.SY.TOP2", "label": "TOP2", "parent": "All Products", "depth": 1, "order": 2},
+        {"name": "pd.SY.P1", "label": "P1", "parent": "pd.SY.TOP1", "depth": 2, "order": 1},
+        {"name": "pd.SY.P2", "label": "P2", "parent": "pd.SY.TOP2", "depth": 2, "order": 1},
+        {"name": "pd.SY.SHARED", "label": "SHARED", "parent": "pd.SY.P1", "depth": 3, "order": 1},
+        {"name": "pd.SY.SHARED", "label": "SHARED", "parent": "pd.SY.P2", "depth": 3, "order": 2},
+    ], 0.1)
+    atlas.store(db, "FinMax", "Other Dim", [
+        {"name": "pd.SY.OTHER_TOP", "label": "OT", "parent": None, "depth": 0, "order": 0},
+        {"name": "pd.SY.SHARED", "label": "SHARED", "parent": "pd.SY.OTHER_TOP", "depth": 1, "order": 1},
+    ], 0.1)
+    got = atlas.ancestors(db, "FinMax", "pd.SY.SHARED", dimension="All Products")
+    assert set(got) == {"pd.SY.P1", "pd.SY.P2", "pd.SY.TOP1", "pd.SY.TOP2", "All Products"}
+    assert "pd.SY.OTHER_TOP" not in got
+
+
+def test_concept_block_deduplicates_overlapping_products_and_emits_finding():
+    from types import SimpleNamespace
+    from smartass.model.blocks.concept import build_concept
+    from smartass.model.validate import guard_spec
+    # Fake Concept with booked item whose Pick lists overlapping parent + child products
+    class FakePick:
+        def __init__(self, account, products=(), entities=(), expr=None):
+            self.account, self.products, self.entities, self.expr = account, products, entities, expr
+
+    class FakeItem:
+        def __init__(self):
+            self.key, self.label, self.kind, self.of, self.key_share = "p49", "Power P49+STROM", "booked", (), None
+        def pick(self):
+            return FakePick("ac.C40S", products=("pd.SY.P49", "pd.SY.STROM"))
+
+    fake_concept = SimpleNamespace(
+        id="ov_concept", title="Overlap Concept", status="approved",
+        total=SimpleNamespace(label="Total concept", of=("p49",)),
+        check=(), block=(SimpleNamespace(title="Items", item=(FakeItem(),)),),
+        items=lambda: [FakeItem()],
+        picks=lambda: [FakePick("ac.C40S", products=("pd.SY.P49", "pd.SY.STROM"))],
+        members=lambda: {"accounts": ("ac.C40S",), "products": ("pd.SY.P49", "pd.SY.STROM")},
+    )
+    base = _hier_resolver()
+    base.concept = lambda name: fake_concept if name == "ov_concept" else None
+    spec = AnalysisSpec.model_validate({
+        "version": 2, "question": "concept overlap", "plan": {"depth": "quick", "title": "concept"},
+        "queries": [{"id": "fm", "cube": "FinMax", "metrics": ["COGS"], "entity": "un.SY.2BUS",
+                     "periods": "Sep 26", "compare": []}],
+        "blocks": [{"type": "concept", "query": "fm", "concept": "ov_concept"}],
+    })
+    findings = guard_spec(spec, base, CLOSED)
+    assert any("pd.SY.P49" in f.text and "pd.SY.STROM" in f.text for f in findings)
+    fr = Frame([
+        Fact("FinMax", "fm:ov_concept:p", "ac.C40S", "un.SY.2BUS", "Sep 26", "Actual", "", v, product=p)
+        for p, v in (("pd.SY.P49", -100.0), ("pd.SY.STROM", -60.0))
+    ])
+    out = build_concept(spec.blocks[0], Ctx(spec, base, CLOSED, fr), "b0")
+    cells = evaluate([out], fr)
+    assert cells.get(ck("b0", "total", 0)) == pytest.approx(-100.0)

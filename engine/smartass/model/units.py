@@ -21,7 +21,8 @@ SHORT_MAX = 28
 def unit_class(r, token: str, cube: str) -> str:
     """The unit class of a metric token (id, name, alias or raw member) in a cube."""
     find = getattr(r, "metric", None)
-    m = find(token) if find is not None else None
+    mm = getattr(r, "_member_metric", None)
+    m = (find(token) if find is not None else None) or (mm(token) if mm is not None else None)
     if m is not None:
         if _ARPU.search(m.name) or _ARPU.search(token):
             return PER_UNIT
